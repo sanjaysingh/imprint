@@ -2,6 +2,8 @@ import './style.css';
 import { compositeToCanvas, downloadCanvas } from './export';
 import { FONT_OPTIONS, type TextLayer } from './types';
 
+const DRAG_THRESHOLD_PX = 6;
+
 function createId(): string {
   return `t_${Math.random().toString(36).slice(2, 11)}`;
 }
@@ -34,95 +36,105 @@ const state: AppState = {
   selectedId: null,
 };
 
-let dragLayerId: string | null = null;
-let dragOffsetX = 0;
-let dragOffsetY = 0;
+type DragSession = {
+  layerId: string;
+  pointerId: number;
+  offsetXPct: number;
+  offsetYPct: number;
+};
+
+let dragSession: DragSession | null = null;
+let pointerCandidate: {
+  layerId: string;
+  pointerId: number;
+  x: number;
+  y: number;
+  dragging: boolean;
+} | null = null;
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('#app missing');
 
 app.innerHTML = `
   <div class="shell">
-    <header class="header">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <h1 class="brand-title">Imprint</h1>
-          <p class="brand-sub">Style text on your image and export</p>
-        </div>
+    <input type="file" class="visually-hidden" id="file-input" accept="image/*" />
+
+    <header class="topbar">
+      <div class="topbar-brand">
+        <span class="topbar-logo" aria-hidden="true"></span>
+        <span class="topbar-title">Imprint</span>
       </div>
+      <button type="button" class="icon-btn icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
     </header>
 
-    <div class="toolbar" role="toolbar" aria-label="Actions">
-      <label class="btn btn-primary">
-        <input type="file" class="visually-hidden" id="file-input" accept="image/*" />
-        Upload image
-      </label>
-      <button type="button" class="btn" id="btn-add-text" disabled>Add text</button>
-      <div class="toolbar-spacer"></div>
-      <button type="button" class="btn" id="btn-png" disabled title="Download PNG">PNG</button>
-      <button type="button" class="btn" id="btn-jpg" disabled title="Download JPG">JPG</button>
-    </div>
-
-    <main class="main">
-      <section class="workspace" aria-label="Canvas">
-        <div class="dropzone" id="dropzone">
-          <div class="dropzone-inner">
-            <p class="dropzone-title">Drop an image here</p>
-            <p class="dropzone-hint">or use Upload — PNG, JPG, WebP, GIF</p>
-          </div>
-        </div>
-        <div class="stage-host hidden" id="stage-host">
-          <div class="stage" id="stage">
-            <img class="stage-img" id="stage-img" alt="Uploaded artwork" />
-            <div class="layers" id="layers" aria-live="polite"></div>
-          </div>
-        </div>
-      </section>
-
-      <aside class="inspector" aria-label="Text properties">
-        <div class="inspector-empty" id="inspector-empty">
-          <p>Add text after uploading an image, then select a layer to edit.</p>
-        </div>
-        <div class="inspector-form hidden" id="inspector-form">
-          <h2 class="inspector-heading">Selected text</h2>
-          <label class="field">
-            <span class="field-label">Content</span>
-            <textarea class="input textarea" id="inp-text" rows="4" placeholder="Type here…"></textarea>
-          </label>
-          <label class="field">
-            <span class="field-label">Font</span>
-            <select class="input select" id="inp-font"></select>
-          </label>
-          <label class="field">
-            <span class="field-label">Size <span class="field-hint" id="size-label"></span></span>
-            <input type="range" class="input range" id="inp-size" min="20" max="160" step="1" />
-          </label>
-          <div class="row">
-            <label class="check">
-              <input type="checkbox" id="inp-bold" />
-              <span>Bold</span>
-            </label>
-            <label class="check">
-              <input type="checkbox" id="inp-italic" />
-              <span>Italic</span>
-            </label>
-          </div>
-          <label class="field">
-            <span class="field-label">Color</span>
-            <div class="color-row">
-              <input type="color" class="input color" id="inp-color" />
-              <input type="text" class="input text flex-1" id="inp-color-hex" spellcheck="false" />
+    <main class="viewport">
+      <div class="canvas-shell" id="canvas-shell">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-state-card">
+            <div class="empty-state-icon" aria-hidden="true">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <circle cx="8.5" cy="10" r="1.5" fill="currentColor" stroke="none"/>
+                <path d="M21 17l-5-5-4 4-2-2-4 4" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
             </div>
-          </label>
-          <button type="button" class="btn btn-danger btn-block" id="btn-delete-layer">Delete text box</button>
+            <p class="empty-state-title">Add your image</p>
+            <p class="empty-state-hint">Drop a file here or click to browse</p>
+          </div>
         </div>
-      </aside>
+
+        <div class="stage-block hidden" id="stage-block">
+          <div class="stage" id="stage">
+            <img class="stage-img" id="stage-img" alt="Your image" />
+            <div class="layers" id="layers"></div>
+          </div>
+        </div>
+      </div>
     </main>
 
-    <footer class="footer">
-      <p>Runs entirely in your browser. Nothing is uploaded to a server.</p>
-    </footer>
+    <div class="text-toolbox hidden" id="text-toolbox" role="toolbar" aria-label="Text formatting">
+      <div class="text-toolbox-row">
+        <select class="tb-select" id="tb-font" title="Font"></select>
+        <label class="tb-size" title="Size">
+          <input type="range" id="tb-size-range" min="20" max="160" step="1" aria-label="Text size" />
+        </label>
+        <button type="button" class="tb-toggle" id="tb-bold" aria-pressed="false" title="Bold">B</button>
+        <button type="button" class="tb-toggle" id="tb-italic" aria-pressed="false" title="Italic"><i>I</i></button>
+        <label class="tb-color-wrap" title="Color">
+          <input type="color" id="tb-color" class="tb-color" aria-label="Text color" />
+        </label>
+        <button type="button" class="tb-icon-danger" id="tb-delete" aria-label="Delete text" title="Delete">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <nav class="bottom-dock" aria-label="Export">
+      <button type="button" class="dock-btn" id="btn-png" disabled aria-label="Download PNG">
+        <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v12"/>
+          <path d="M8 11l4 4 4-4"/>
+          <path d="M4 19h16"/>
+        </svg>
+        <span class="dock-label">PNG</span>
+      </button>
+      <button type="button" class="dock-btn" id="btn-jpg" disabled aria-label="Download JPG">
+        <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3v12"/>
+          <path d="M8 11l4 4 4-4"/>
+          <path d="M4 19h16"/>
+        </svg>
+        <span class="dock-label">JPG</span>
+      </button>
+    </nav>
+
+    <p class="privacy-note">Runs in your browser — nothing is uploaded.</p>
   </div>
 `;
 
@@ -132,27 +144,24 @@ const fileInput = $('#file-input') as HTMLInputElement;
 const btnAddText = $('#btn-add-text') as HTMLButtonElement;
 const btnPng = $('#btn-png') as HTMLButtonElement;
 const btnJpg = $('#btn-jpg') as HTMLButtonElement;
-const dropzone = $('#dropzone') as HTMLDivElement;
-const stageHost = $('#stage-host') as HTMLDivElement;
+const canvasShell = $('#canvas-shell') as HTMLDivElement;
+const emptyState = $('#empty-state') as HTMLDivElement;
+const stageBlock = $('#stage-block') as HTMLDivElement;
 const stageImg = $('#stage-img') as HTMLImageElement;
 const layersEl = $('#layers') as HTMLDivElement;
-const inspectorEmpty = $('#inspector-empty') as HTMLDivElement;
-const inspectorForm = $('#inspector-form') as HTMLDivElement;
-const inpText = $('#inp-text') as HTMLTextAreaElement;
-const inpFont = $('#inp-font') as HTMLSelectElement;
-const inpSize = $('#inp-size') as HTMLInputElement;
-const sizeLabel = $('#size-label') as HTMLSpanElement;
-const inpBold = $('#inp-bold') as HTMLInputElement;
-const inpItalic = $('#inp-italic') as HTMLInputElement;
-const inpColor = $('#inp-color') as HTMLInputElement;
-const inpColorHex = $('#inp-color-hex') as HTMLInputElement;
-const btnDeleteLayer = $('#btn-delete-layer') as HTMLButtonElement;
+const textToolbox = $('#text-toolbox') as HTMLDivElement;
+const tbFont = $('#tb-font') as HTMLSelectElement;
+const tbSize = $('#tb-size-range') as HTMLInputElement;
+const tbBold = $('#tb-bold') as HTMLButtonElement;
+const tbItalic = $('#tb-italic') as HTMLButtonElement;
+const tbColor = $('#tb-color') as HTMLInputElement;
+const tbDelete = $('#tb-delete') as HTMLButtonElement;
 
 FONT_OPTIONS.forEach((f) => {
   const opt = document.createElement('option');
   opt.value = f.value;
   opt.textContent = f.label;
-  inpFont.appendChild(opt);
+  tbFont.appendChild(opt);
 });
 
 function selectedLayer(): TextLayer | null {
@@ -170,8 +179,8 @@ function setImageFromFile(file: File): void {
   stageImg.src = url;
   stageImg.onload = () => {
     state.imageObject = stageImg;
-    dropzone.classList.add('hidden');
-    stageHost.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+    stageBlock.classList.remove('hidden');
     btnAddText.disabled = false;
     btnPng.disabled = false;
     btnJpg.disabled = false;
@@ -179,118 +188,214 @@ function setImageFromFile(file: File): void {
     state.layers.push(layer);
     state.selectedId = layer.id;
     renderLayers();
-    syncInspectorFromState();
+    syncToolboxFromLayer();
+    requestAnimationFrame(() => positionToolbox());
   };
 }
 
-function updateLayer(partial: Partial<TextLayer>): void {
-  const layer = selectedLayer();
-  if (!layer) return;
-  Object.assign(layer, partial);
-  renderLayers();
+function openFilePicker(): void {
+  fileInput.click();
+}
+
+function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
+  el.style.left = `${layer.nx * 100}%`;
+  el.style.top = `${layer.ny * 100}%`;
+  const displayH = stageImg.getBoundingClientRect().height || 1;
+  const fontPx = Math.max(10, layer.sizeRatio * displayH);
+  const inner = el.querySelector<HTMLElement>('.text-layer__inner');
+  if (!inner) return;
+  inner.style.fontFamily = `"${layer.fontFamily}", sans-serif`;
+  inner.style.fontSize = `${fontPx}px`;
+  inner.style.fontWeight = String(layer.fontWeight);
+  inner.style.fontStyle = layer.fontStyle;
+  inner.style.color = layer.color;
+  const isSelected = layer.id === state.selectedId;
+  inner.contentEditable = isSelected ? 'true' : 'false';
+  inner.tabIndex = isSelected ? 0 : -1;
+  if (document.activeElement !== inner) {
+    inner.textContent = layer.text;
+  }
+  el.classList.toggle('text-layer--selected', isSelected);
+  el.dataset.id = layer.id;
 }
 
 function renderLayers(): void {
-  layersEl.replaceChildren();
+  const existing = new Map<string, HTMLElement>();
+  layersEl.querySelectorAll<HTMLElement>('.text-layer').forEach((n) => {
+    const id = n.dataset.id;
+    if (id) existing.set(id, n);
+  });
+
+  const nextIds = new Set(state.layers.map((l) => l.id));
+
+  existing.forEach((el, id) => {
+    if (!nextIds.has(id)) el.remove();
+  });
+
   for (const layer of state.layers) {
-    const el = document.createElement('div');
-    el.className = 'text-layer' + (layer.id === state.selectedId ? ' text-layer--selected' : '');
-    el.dataset.id = layer.id;
-    el.textContent = layer.text;
-    el.style.left = `${layer.nx * 100}%`;
-    el.style.top = `${layer.ny * 100}%`;
-    const displayH = stageImg.getBoundingClientRect().height || 1;
-    const fontPx = Math.max(10, layer.sizeRatio * displayH);
-    el.style.fontFamily = `"${layer.fontFamily}", sans-serif`;
-    el.style.fontSize = `${fontPx}px`;
-    el.style.fontWeight = String(layer.fontWeight);
-    el.style.fontStyle = layer.fontStyle;
-    el.style.color = layer.color;
-    el.setAttribute('role', 'button');
-    el.tabIndex = 0;
-    el.setAttribute('aria-label', `Text layer: ${layer.text.slice(0, 40)}${layer.text.length > 40 ? '…' : ''}`);
+    let el = existing.get(layer.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'text-layer';
+      el.dataset.id = layer.id;
+      el.setAttribute('role', 'group');
+      el.setAttribute('aria-label', 'Text layer');
 
-    el.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      state.selectedId = layer.id;
-      dragLayerId = layer.id;
-      const rect = layersEl.getBoundingClientRect();
-      const lx = ((e.clientX - rect.left) / rect.width) * 100;
-      const ly = ((e.clientY - rect.top) / rect.height) * 100;
-      dragOffsetX = lx - layer.nx * 100;
-      dragOffsetY = ly - layer.ny * 100;
-      el.setPointerCapture(e.pointerId);
-      renderLayers();
-      syncInspectorFromState();
-    });
+      const inner = document.createElement('div');
+      inner.className = 'text-layer__inner';
+      inner.spellcheck = false;
+      el.appendChild(inner);
 
-    el.addEventListener('pointermove', (e) => {
-      if (dragLayerId !== layer.id) return;
-      const rect = layersEl.getBoundingClientRect();
-      let nx = ((e.clientX - rect.left) / rect.width) * 100 - dragOffsetX;
-      let ny = ((e.clientY - rect.top) / rect.height) * 100 - dragOffsetY;
-      nx = Math.max(0, Math.min(100, nx));
-      ny = Math.max(0, Math.min(100, ny));
-      layer.nx = nx / 100;
-      layer.ny = ny / 100;
-      el.style.left = `${nx}%`;
-      el.style.top = `${ny}%`;
-    });
+      inner.addEventListener('input', () => {
+        layer.text = inner.innerText.replace(/\u00a0/g, ' ');
+        positionToolbox();
+      });
 
-    const endDrag = (e: PointerEvent) => {
-      if (dragLayerId === layer.id) {
-        dragLayerId = null;
+      el.addEventListener(
+        'pointerdown',
+        (e) => {
+          if (e.button !== 0) return;
+          state.selectedId = layer.id;
+          renderLayers();
+          syncToolboxFromLayer();
+          requestAnimationFrame(() => positionToolbox());
+          pointerCandidate = {
+            layerId: layer.id,
+            pointerId: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            dragging: false,
+          };
+          el!.setPointerCapture(e.pointerId);
+        },
+        true,
+      );
+
+      el.addEventListener('pointermove', (e) => {
+        if (pointerCandidate && pointerCandidate.layerId === layer.id && pointerCandidate.pointerId === e.pointerId) {
+          const dx = e.clientX - pointerCandidate.x;
+          const dy = e.clientY - pointerCandidate.y;
+          if (!pointerCandidate.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+            pointerCandidate.dragging = true;
+            const innerEl = el!.querySelector<HTMLElement>('.text-layer__inner');
+            innerEl?.blur();
+            const rect = layersEl.getBoundingClientRect();
+            const lx = ((pointerCandidate.x - rect.left) / rect.width) * 100;
+            const ly = ((pointerCandidate.y - rect.top) / rect.height) * 100;
+            dragSession = {
+              layerId: layer.id,
+              pointerId: e.pointerId,
+              offsetXPct: lx - layer.nx * 100,
+              offsetYPct: ly - layer.ny * 100,
+            };
+          }
+        }
+        if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
+          e.preventDefault();
+          const r = layersEl.getBoundingClientRect();
+          let nx = ((e.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
+          let ny = ((e.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
+          nx = Math.max(0, Math.min(100, nx));
+          ny = Math.max(0, Math.min(100, ny));
+          layer.nx = nx / 100;
+          layer.ny = ny / 100;
+          el!.style.left = `${nx}%`;
+          el!.style.top = `${ny}%`;
+          positionToolbox();
+        }
+      });
+
+      const endPointer = (e: PointerEvent) => {
+        if (pointerCandidate?.pointerId === e.pointerId && pointerCandidate.layerId === layer.id) {
+          if (!pointerCandidate.dragging) {
+            requestAnimationFrame(() => {
+              const ed = el!.querySelector<HTMLElement>('.text-layer__inner');
+              ed?.focus();
+              const len = ed?.innerText.length ?? 0;
+              try {
+                const range = document.createRange();
+                const sel = window.getSelection();
+                const node = ed?.firstChild;
+                if (ed && sel && node && node.nodeType === Node.TEXT_NODE) {
+                  range.setStart(node, len);
+                  range.collapse(true);
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                } else if (ed && sel) {
+                  range.selectNodeContents(ed);
+                  range.collapse(false);
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                }
+              } catch {
+                /* ignore */
+              }
+            });
+          }
+          pointerCandidate = null;
+        }
+        if (dragSession?.pointerId === e.pointerId) {
+          dragSession = null;
+        }
         try {
-          el.releasePointerCapture(e.pointerId);
+          el!.releasePointerCapture(e.pointerId);
         } catch {
           /* ignore */
         }
-      }
-    };
-    el.addEventListener('pointerup', endDrag);
-    el.addEventListener('pointercancel', endDrag);
+      };
+      el.addEventListener('pointerup', endPointer);
+      el.addEventListener('pointercancel', endPointer);
 
-    el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      state.selectedId = layer.id;
-      renderLayers();
-      syncInspectorFromState();
-    });
-
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        state.selectedId = layer.id;
-        renderLayers();
-        syncInspectorFromState();
-      }
-    });
-
-    layersEl.appendChild(el);
+      layersEl.appendChild(el);
+    }
+    applyLayerVisuals(el, layer);
   }
+
+  if (!state.layers.some((l) => l.id === state.selectedId)) {
+    state.selectedId = state.layers[0]?.id ?? null;
+  }
+  syncToolboxFromLayer();
+  requestAnimationFrame(() => positionToolbox());
 }
 
-function syncInspectorFromState(): void {
+function positionToolbox(): void {
   const layer = selectedLayer();
-  const hasImage = !!state.imageObject;
-  if (!hasImage || !layer) {
-    inspectorEmpty.classList.remove('hidden');
-    inspectorForm.classList.add('hidden');
+  const show = !!(state.imageObject && layer);
+  if (!show) {
+    textToolbox.classList.add('hidden');
     return;
   }
-  inspectorEmpty.classList.add('hidden');
-  inspectorForm.classList.remove('hidden');
-  inpText.value = layer.text;
-  inpFont.value = layer.fontFamily;
-  inpSize.value = String(layer.sizeRatio * 1000);
-  inpBold.checked = layer.fontWeight >= 700;
-  inpItalic.checked = layer.fontStyle === 'italic';
-  inpColor.value = hexToInputColor(layer.color);
-  inpColorHex.value = normalizeHex(layer.color);
-  sizeLabel.textContent = `(${(layer.sizeRatio * 100).toFixed(1)}% of height)`;
+  textToolbox.classList.remove('hidden');
+  const el = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"]`);
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const tb = textToolbox.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  let top = rect.top - tb.height - 12;
+  const safeTop = 8 + (typeof CSS !== 'undefined' ? Number.parseFloat(getComputedStyle(document.documentElement).paddingTop) || 0 : 0);
+  if (top < safeTop) {
+    top = rect.bottom + 12;
+  }
+  let left = cx - tb.width / 2;
+  const pad = 10;
+  left = Math.max(pad, Math.min(left, window.innerWidth - tb.width - pad));
+  textToolbox.style.left = `${left}px`;
+  textToolbox.style.top = `${top}px`;
 }
 
-function normalizeHex(c: string): string {
+function syncToolboxFromLayer(): void {
+  const layer = selectedLayer();
+  if (!layer) return;
+  tbFont.value = layer.fontFamily;
+  tbSize.value = String(layer.sizeRatio * 1000);
+  tbBold.setAttribute('aria-pressed', String(layer.fontWeight >= 700));
+  tbBold.classList.toggle('tb-toggle--on', layer.fontWeight >= 700);
+  tbItalic.setAttribute('aria-pressed', String(layer.fontStyle === 'italic'));
+  tbItalic.classList.toggle('tb-toggle--on', layer.fontStyle === 'italic');
+  tbColor.value = hexToInputColor(layer.color);
+}
+
+function hexToInputColor(c: string): string {
   const s = c.trim();
   if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
   if (/^#[0-9a-fA-F]{3}$/.test(s)) {
@@ -302,58 +407,59 @@ function normalizeHex(c: string): string {
   return '#ffffff';
 }
 
-function hexToInputColor(c: string): string {
-  const h = normalizeHex(c);
-  return h.length === 7 ? h : '#ffffff';
-}
-
-function parseHex(s: string): string | null {
-  const t = s.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(t)) return t.toLowerCase();
-  if (/^#[0-9a-fA-F]{3}$/.test(t)) return normalizeHex(t);
-  return null;
-}
-
-inpText.addEventListener('input', () => updateLayer({ text: inpText.value }));
-inpFont.addEventListener('change', () => updateLayer({ fontFamily: inpFont.value }));
-inpSize.addEventListener('input', () => {
-  const v = Number(inpSize.value);
-  const ratio = v / 1000;
-  updateLayer({ sizeRatio: ratio });
-  sizeLabel.textContent = `(${(ratio * 100).toFixed(1)}% of height)`;
-});
-inpBold.addEventListener('change', () => updateLayer({ fontWeight: inpBold.checked ? 700 : 400 }));
-inpItalic.addEventListener('change', () => updateLayer({ fontStyle: inpItalic.checked ? 'italic' : 'normal' }));
-inpColor.addEventListener('input', () => {
-  updateLayer({ color: inpColor.value });
-  inpColorHex.value = inpColor.value;
-});
-inpColorHex.addEventListener('change', () => {
-  const p = parseHex(inpColorHex.value);
-  if (p) {
-    updateLayer({ color: p });
-    inpColor.value = p;
-  } else {
-    inpColorHex.value = normalizeHex(selectedLayer()?.color ?? '#fff');
-  }
+tbFont.addEventListener('change', () => {
+  const layer = selectedLayer();
+  if (!layer) return;
+  layer.fontFamily = tbFont.value;
+  renderLayers();
 });
 
-btnDeleteLayer.addEventListener('click', () => {
+tbSize.addEventListener('input', () => {
+  const layer = selectedLayer();
+  if (!layer) return;
+  layer.sizeRatio = Number(tbSize.value) / 1000;
+  renderLayers();
+});
+
+tbBold.addEventListener('click', () => {
+  const layer = selectedLayer();
+  if (!layer) return;
+  layer.fontWeight = layer.fontWeight >= 700 ? 400 : 700;
+  renderLayers();
+});
+
+tbItalic.addEventListener('click', () => {
+  const layer = selectedLayer();
+  if (!layer) return;
+  layer.fontStyle = layer.fontStyle === 'italic' ? 'normal' : 'italic';
+  renderLayers();
+});
+
+tbColor.addEventListener('input', () => {
+  const layer = selectedLayer();
+  if (!layer) return;
+  layer.color = tbColor.value;
+  renderLayers();
+});
+
+tbDelete.addEventListener('click', () => {
   const id = state.selectedId;
   if (!id) return;
   state.layers = state.layers.filter((l) => l.id !== id);
   state.selectedId = state.layers[0]?.id ?? null;
   renderLayers();
-  syncInspectorFromState();
 });
 
 btnAddText.addEventListener('click', () => {
+  if (!state.imageObject) return;
   const layer = defaultLayer();
   state.layers.push(layer);
   state.selectedId = layer.id;
   renderLayers();
-  syncInspectorFromState();
-  inpText.focus();
+  requestAnimationFrame(() => {
+    const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
+    ed?.focus();
+  });
 });
 
 fileInput.addEventListener('change', () => {
@@ -362,44 +468,56 @@ fileInput.addEventListener('change', () => {
   fileInput.value = '';
 });
 
+emptyState.addEventListener('click', () => openFilePicker());
+
 ['dragenter', 'dragover'].forEach((ev) => {
-  dropzone.addEventListener(ev, (e) => {
+  canvasShell.addEventListener(ev, (e) => {
     e.preventDefault();
     e.stopPropagation();
-    dropzone.classList.add('dropzone--active');
+    canvasShell.classList.add('canvas-shell--drop');
   });
 });
 ['dragleave', 'drop'].forEach((ev) => {
-  dropzone.addEventListener(ev, (e) => {
+  canvasShell.addEventListener(ev, (e) => {
     e.preventDefault();
     e.stopPropagation();
-    dropzone.classList.remove('dropzone--active');
+    canvasShell.classList.remove('canvas-shell--drop');
   });
 });
-dropzone.addEventListener('drop', (e) => {
+canvasShell.addEventListener('drop', (e) => {
   const f = e.dataTransfer?.files?.[0];
-  if (f) setImageFromFile(f);
+  if (f?.type.startsWith('image/')) setImageFromFile(f);
 });
 
-stageHost.addEventListener('click', () => {
-  /* deselect optional — keep selection for clearer UX */
-});
+textToolbox.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 function exportImage(kind: 'png' | 'jpg'): void {
   const img = state.imageObject;
   if (!img || !img.complete || img.naturalWidth === 0) return;
+  layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
+  state.layers.forEach((layer) => {
+    const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
+    if (ed) layer.text = ed.innerText.replace(/\u00a0/g, ' ');
+  });
   const canvas = compositeToCanvas(img, state.layers);
   const base = 'imprint-export';
-  if (kind === 'png') {
-    downloadCanvas(canvas, `${base}.png`, 'image/png');
-  } else {
-    downloadCanvas(canvas, `${base}.jpg`, 'image/jpeg', 0.92);
-  }
+  if (kind === 'png') downloadCanvas(canvas, `${base}.png`, 'image/png');
+  else downloadCanvas(canvas, `${base}.jpg`, 'image/jpeg', 0.92);
 }
 
 btnPng.addEventListener('click', () => exportImage('png'));
 btnJpg.addEventListener('click', () => exportImage('jpg'));
 
 window.addEventListener('resize', () => {
-  if (state.layers.length) renderLayers();
+  if (state.layers.length) {
+    renderLayers();
+  }
+});
+
+window.addEventListener('scroll', () => positionToolbox(), true);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    (document.activeElement as HTMLElement)?.blur?.();
+  }
 });
