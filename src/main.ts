@@ -4,6 +4,32 @@ import { FONT_OPTIONS, type TextLayer } from './types';
 
 const DRAG_THRESHOLD_PX = 6;
 
+/** Preset sizes (labels ≈ familiar scale); ratio = fraction of image height when exported */
+const SIZE_PRESETS: { label: string; ratio: number }[] = [
+  { label: '12', ratio: 0.028 },
+  { label: '14', ratio: 0.033 },
+  { label: '16', ratio: 0.038 },
+  { label: '18', ratio: 0.043 },
+  { label: '24', ratio: 0.055 },
+  { label: '32', ratio: 0.072 },
+  { label: '40', ratio: 0.088 },
+  { label: '48', ratio: 0.1 },
+  { label: '64', ratio: 0.125 },
+];
+
+function nearestPresetRatio(ratio: number): number {
+  let best = SIZE_PRESETS[0].ratio;
+  let bestD = Math.abs(best - ratio);
+  for (const p of SIZE_PRESETS) {
+    const d = Math.abs(p.ratio - ratio);
+    if (d < bestD) {
+      bestD = d;
+      best = p.ratio;
+    }
+  }
+  return best;
+}
+
 function createId(): string {
   return `t_${Math.random().toString(36).slice(2, 11)}`;
 }
@@ -14,7 +40,7 @@ function defaultLayer(): TextLayer {
     text: 'Your text',
     nx: 0.5,
     ny: 0.5,
-    sizeRatio: 0.06,
+    sizeRatio: 0.055,
     fontFamily: FONT_OPTIONS[0].value,
     fontWeight: 700,
     fontStyle: 'normal',
@@ -64,12 +90,9 @@ app.innerHTML = `
         <span class="topbar-logo" aria-hidden="true"></span>
         <span class="topbar-title">Imprint</span>
       </div>
-      <button type="button" class="icon-btn icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-          <path d="M12 5v14M5 12h14" />
-        </svg>
-      </button>
     </header>
+
+    <p class="tagline">Your words, your image — designed in your browser, never uploaded.</p>
 
     <main class="viewport">
       <div class="canvas-shell" id="canvas-shell">
@@ -89,6 +112,11 @@ app.innerHTML = `
 
         <div class="stage-block hidden" id="stage-block">
           <div class="stage" id="stage">
+            <button type="button" class="stage-add-btn icon-btn icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
             <img class="stage-img" id="stage-img" alt="Your image" />
             <div class="layers" id="layers"></div>
           </div>
@@ -99,9 +127,7 @@ app.innerHTML = `
     <div class="text-toolbox hidden" id="text-toolbox" role="toolbar" aria-label="Text formatting">
       <div class="text-toolbox-row">
         <select class="tb-select" id="tb-font" title="Font"></select>
-        <label class="tb-size" title="Size">
-          <input type="range" id="tb-size-range" min="20" max="160" step="1" aria-label="Text size" />
-        </label>
+        <select class="tb-select tb-select--size" id="tb-size" title="Size" aria-label="Font size"></select>
         <button type="button" class="tb-toggle" id="tb-bold" aria-pressed="false" title="Bold">B</button>
         <button type="button" class="tb-toggle" id="tb-italic" aria-pressed="false" title="Italic"><i>I</i></button>
         <label class="tb-color-wrap" title="Color">
@@ -134,7 +160,6 @@ app.innerHTML = `
       </button>
     </nav>
 
-    <p class="privacy-note">Runs in your browser — nothing is uploaded.</p>
   </div>
 `;
 
@@ -151,7 +176,7 @@ const stageImg = $('#stage-img') as HTMLImageElement;
 const layersEl = $('#layers') as HTMLDivElement;
 const textToolbox = $('#text-toolbox') as HTMLDivElement;
 const tbFont = $('#tb-font') as HTMLSelectElement;
-const tbSize = $('#tb-size-range') as HTMLInputElement;
+const tbSize = $('#tb-size') as HTMLSelectElement;
 const tbBold = $('#tb-bold') as HTMLButtonElement;
 const tbItalic = $('#tb-italic') as HTMLButtonElement;
 const tbColor = $('#tb-color') as HTMLInputElement;
@@ -162,6 +187,13 @@ FONT_OPTIONS.forEach((f) => {
   opt.value = f.value;
   opt.textContent = f.label;
   tbFont.appendChild(opt);
+});
+
+SIZE_PRESETS.forEach((s) => {
+  const opt = document.createElement('option');
+  opt.value = String(s.ratio);
+  opt.textContent = s.label;
+  tbSize.appendChild(opt);
 });
 
 function selectedLayer(): TextLayer | null {
@@ -186,10 +218,8 @@ function setImageFromFile(file: File): void {
     btnJpg.disabled = false;
     const layer = defaultLayer();
     state.layers.push(layer);
-    state.selectedId = layer.id;
+    state.selectedId = null;
     renderLayers();
-    syncToolboxFromLayer();
-    requestAnimationFrame(() => positionToolbox());
   };
 }
 
@@ -351,8 +381,8 @@ function renderLayers(): void {
     applyLayerVisuals(el, layer);
   }
 
-  if (!state.layers.some((l) => l.id === state.selectedId)) {
-    state.selectedId = state.layers[0]?.id ?? null;
+  if (state.selectedId && !state.layers.some((l) => l.id === state.selectedId)) {
+    state.selectedId = null;
   }
   syncToolboxFromLayer();
   requestAnimationFrame(() => positionToolbox());
@@ -360,7 +390,7 @@ function renderLayers(): void {
 
 function positionToolbox(): void {
   const layer = selectedLayer();
-  const show = !!(state.imageObject && layer);
+  const show = !!(state.imageObject && layer && state.selectedId);
   if (!show) {
     textToolbox.classList.add('hidden');
     return;
@@ -387,7 +417,7 @@ function syncToolboxFromLayer(): void {
   const layer = selectedLayer();
   if (!layer) return;
   tbFont.value = layer.fontFamily;
-  tbSize.value = String(layer.sizeRatio * 1000);
+  tbSize.value = String(nearestPresetRatio(layer.sizeRatio));
   tbBold.setAttribute('aria-pressed', String(layer.fontWeight >= 700));
   tbBold.classList.toggle('tb-toggle--on', layer.fontWeight >= 700);
   tbItalic.setAttribute('aria-pressed', String(layer.fontStyle === 'italic'));
@@ -414,10 +444,10 @@ tbFont.addEventListener('change', () => {
   renderLayers();
 });
 
-tbSize.addEventListener('input', () => {
+tbSize.addEventListener('change', () => {
   const layer = selectedLayer();
   if (!layer) return;
-  layer.sizeRatio = Number(tbSize.value) / 1000;
+  layer.sizeRatio = Number(tbSize.value);
   renderLayers();
 });
 
@@ -446,7 +476,7 @@ tbDelete.addEventListener('click', () => {
   const id = state.selectedId;
   if (!id) return;
   state.layers = state.layers.filter((l) => l.id !== id);
-  state.selectedId = state.layers[0]?.id ?? null;
+  state.selectedId = null;
   renderLayers();
 });
 
@@ -489,7 +519,40 @@ canvasShell.addEventListener('drop', (e) => {
   if (f?.type.startsWith('image/')) setImageFromFile(f);
 });
 
+function isInsideToolbarOrDock(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el?.closest) return false;
+  return Boolean(
+    el.closest('#text-toolbox') ||
+      el.closest('.bottom-dock') ||
+      el.closest('.topbar') ||
+      el.closest('.tagline'),
+  );
+}
+
+canvasShell.addEventListener('pointerdown', (e) => {
+  const el = e.target as HTMLElement;
+  if (el.closest('.text-layer') || el.closest('.stage-add-btn')) return;
+  state.selectedId = null;
+  layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
+  renderLayers();
+});
+
 textToolbox.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+document.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (!state.imageObject) return;
+    const el = e.target as HTMLElement;
+    if (el.closest('.canvas-shell') || isInsideToolbarOrDock(e.target)) return;
+    if (state.selectedId === null) return;
+    state.selectedId = null;
+    layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
+    renderLayers();
+  },
+  true,
+);
 
 function exportImage(kind: 'png' | 'jpg'): void {
   const img = state.imageObject;
@@ -518,6 +581,10 @@ window.addEventListener('scroll', () => positionToolbox(), true);
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    (document.activeElement as HTMLElement)?.blur?.();
+    layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
+    if (state.selectedId !== null) {
+      state.selectedId = null;
+      renderLayers();
+    }
   }
 });
