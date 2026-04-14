@@ -285,7 +285,7 @@ body {
   position: absolute;
   transform: translate(-50%, -50%);
   pointer-events: auto;
-  touch-action: none;
+  touch-action: auto;
   max-width: min(92%, 26rem);
   padding: 2px;
   border-radius: 8px;
@@ -300,6 +300,9 @@ body {
   min-width: 2ch;
   outline: none;
   cursor: text;
+  touch-action: auto;
+  -webkit-user-select: text;
+  user-select: text;
   white-space: pre-wrap;
   text-align: center;
   word-break: break-word;
