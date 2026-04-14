@@ -122,6 +122,12 @@ type AppState = {
   selectedId: string | null;
   /** Set when the user is typing in a layer (second tap); not set on select-only (first tap). */
   editingLayerId: string | null;
+  /**
+   * When a layer is selected but not editing: starts false after select/blur; first completed tap
+   * sets this true; the next tap enters edit mode. Avoids treating "already selected" as "second tap"
+   * (e.g. after blur left selection intact).
+   */
+  nextTextTapEntersEdit: boolean;
 };
 
 const state: AppState = {
@@ -130,6 +136,7 @@ const state: AppState = {
   layers: [],
   selectedId: null,
   editingLayerId: null,
+  nextTextTapEntersEdit: false,
 };
 
 type DragSession = {
@@ -174,19 +181,39 @@ app.innerHTML = `
 
     <main class="viewport">
       <div class="canvas-workspace">
-        <div class="stage-toolbar canvas-toolbar" id="canvas-toolbar">
-          <button type="button" class="icon-btn icon-btn--toolbar" id="btn-replace-image" aria-label="Upload or replace image" title="Upload or replace image">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
-          <button type="button" class="icon-btn icon-btn--toolbar icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
+        <div class="stage-toolbar canvas-toolbar" id="canvas-toolbar" aria-label="Canvas actions">
+          <div class="canvas-toolbar__cluster canvas-toolbar__cluster--start">
+            <button type="button" class="icon-btn icon-btn--toolbar" id="btn-replace-image" aria-label="Upload or replace image" title="Upload or replace image">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </button>
+            <button type="button" class="icon-btn icon-btn--toolbar icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          </div>
+          <div class="canvas-toolbar__cluster canvas-toolbar__cluster--end">
+            <button type="button" class="icon-btn icon-btn--toolbar icon-btn--toolbar-export" id="btn-png" disabled aria-label="Download PNG" title="Download PNG">
+              <svg class="icon-btn__export-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12"/>
+                <path d="M8 11l4 4 4-4"/>
+                <path d="M4 19h16"/>
+              </svg>
+              <span class="icon-btn__format-label">PNG</span>
+            </button>
+            <button type="button" class="icon-btn icon-btn--toolbar icon-btn--toolbar-export" id="btn-jpg" disabled aria-label="Download JPG" title="Download JPG">
+              <svg class="icon-btn__export-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12"/>
+                <path d="M8 11l4 4 4-4"/>
+                <path d="M4 19h16"/>
+              </svg>
+              <span class="icon-btn__format-label">JPG</span>
+            </button>
+          </div>
         </div>
 
         <div class="canvas-shell" id="canvas-shell">
@@ -228,25 +255,6 @@ app.innerHTML = `
         </button>
       </div>
     </div>
-
-    <nav class="bottom-dock" aria-label="Export">
-      <button type="button" class="dock-btn" id="btn-png" disabled aria-label="Download PNG">
-        <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 3v12"/>
-          <path d="M8 11l4 4 4-4"/>
-          <path d="M4 19h16"/>
-        </svg>
-        <span class="dock-label">PNG</span>
-      </button>
-      <button type="button" class="dock-btn" id="btn-jpg" disabled aria-label="Download JPG">
-        <svg class="dock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M12 3v12"/>
-          <path d="M8 11l4 4 4-4"/>
-          <path d="M4 19h16"/>
-        </svg>
-        <span class="dock-label">JPG</span>
-      </button>
-    </nav>
 
   </div>
 `;
@@ -299,6 +307,7 @@ function setImageFromFile(file: File): void {
   state.layers = [];
   state.selectedId = null;
   state.editingLayerId = null;
+  state.nextTextTapEntersEdit = false;
   stageImg.src = url;
   stageImg.onload = () => {
     state.imageObject = stageImg;
@@ -383,6 +392,7 @@ function renderLayers(): void {
         if (state.editingLayerId === layer.id) {
           state.editingLayerId = null;
         }
+        state.nextTextTapEntersEdit = false;
         requestAnimationFrame(() => renderLayers());
       });
 
@@ -395,6 +405,7 @@ function renderLayers(): void {
         if (!wasSelected) {
           state.selectedId = layer.id;
           state.editingLayerId = null;
+          state.nextTextTapEntersEdit = false;
           renderLayers();
           syncToolboxFromLayer();
           rememberTextStyleFromLayer(layer);
@@ -439,6 +450,11 @@ function renderLayers(): void {
           if (!pc.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
             pc.dragging = true;
             inner.blur();
+            try {
+              window.getSelection()?.removeAllRanges();
+            } catch {
+              /* ignore */
+            }
             layerEl.setPointerCapture(pid);
             const rect = layersEl.getBoundingClientRect();
             const lx = ((pc.x - rect.left) / rect.width) * 100;
@@ -473,7 +489,12 @@ function renderLayers(): void {
           if (pointerCandidate?.pointerId === pid && pointerCandidate.layerId === layer.id) {
             if (!pointerCandidate.dragging) {
               requestAnimationFrame(() => {
-                if (!wasSelected) return;
+                if (state.selectedId !== layer.id || state.editingLayerId === layer.id) return;
+                if (!state.nextTextTapEntersEdit) {
+                  state.nextTextTapEntersEdit = true;
+                  return;
+                }
+                state.nextTextTapEntersEdit = false;
                 state.editingLayerId = layer.id;
                 renderLayers();
                 const ed = layerEl.querySelector<HTMLElement>('.text-layer__inner');
@@ -630,6 +651,7 @@ tbDelete.addEventListener('click', () => {
   state.layers = state.layers.filter((l) => l.id !== id);
   state.selectedId = null;
   state.editingLayerId = null;
+  state.nextTextTapEntersEdit = false;
   renderLayers();
 });
 
@@ -639,6 +661,7 @@ btnAddText.addEventListener('click', () => {
   state.layers.push(layer);
   state.selectedId = layer.id;
   state.editingLayerId = layer.id;
+  state.nextTextTapEntersEdit = false;
   renderLayers();
   requestAnimationFrame(() => {
     const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
@@ -680,7 +703,6 @@ function isInsideToolbarOrDock(target: EventTarget | null): boolean {
   if (!el?.closest) return false;
   return Boolean(
     el.closest('#text-toolbox') ||
-      el.closest('.bottom-dock') ||
       el.closest('.topbar') ||
       el.closest('.tagline'),
   );
@@ -691,6 +713,7 @@ canvasShell.addEventListener('pointerdown', (e) => {
   if (el.closest('.text-layer')) return;
   state.selectedId = null;
   state.editingLayerId = null;
+  state.nextTextTapEntersEdit = false;
   layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
   renderLayers();
 });
@@ -706,6 +729,7 @@ document.addEventListener(
     if (state.selectedId === null) return;
     state.selectedId = null;
     state.editingLayerId = null;
+    state.nextTextTapEntersEdit = false;
     layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
     renderLayers();
   },
@@ -741,6 +765,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
     state.editingLayerId = null;
+    state.nextTextTapEntersEdit = false;
     if (state.selectedId !== null) {
       state.selectedId = null;
       renderLayers();
