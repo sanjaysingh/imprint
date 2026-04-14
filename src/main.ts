@@ -111,14 +111,25 @@ app.innerHTML = `
         </div>
 
         <div class="stage-block hidden" id="stage-block">
-          <div class="stage" id="stage">
-            <button type="button" class="stage-add-btn icon-btn icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-            <img class="stage-img" id="stage-img" alt="Your image" />
-            <div class="layers" id="layers"></div>
+          <div class="stage-area">
+            <div class="stage-toolbar">
+              <button type="button" class="icon-btn icon-btn--toolbar" id="btn-replace-image" disabled aria-label="Replace image" title="Replace image">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </button>
+              <button type="button" class="icon-btn icon-btn--toolbar icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            </div>
+            <div class="stage" id="stage">
+              <img class="stage-img" id="stage-img" alt="Your image" />
+              <div class="layers" id="layers"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -166,6 +177,7 @@ app.innerHTML = `
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel);
 
 const fileInput = $('#file-input') as HTMLInputElement;
+const btnReplaceImage = $('#btn-replace-image') as HTMLButtonElement;
 const btnAddText = $('#btn-add-text') as HTMLButtonElement;
 const btnPng = $('#btn-png') as HTMLButtonElement;
 const btnJpg = $('#btn-jpg') as HTMLButtonElement;
@@ -213,12 +225,10 @@ function setImageFromFile(file: File): void {
     state.imageObject = stageImg;
     emptyState.classList.add('hidden');
     stageBlock.classList.remove('hidden');
+    btnReplaceImage.disabled = false;
     btnAddText.disabled = false;
     btnPng.disabled = false;
     btnJpg.disabled = false;
-    const layer = defaultLayer();
-    state.layers.push(layer);
-    state.selectedId = null;
     renderLayers();
   };
 }
@@ -492,6 +502,8 @@ btnAddText.addEventListener('click', () => {
   });
 });
 
+btnReplaceImage.addEventListener('click', () => openFilePicker());
+
 fileInput.addEventListener('change', () => {
   const f = fileInput.files?.[0];
   if (f) setImageFromFile(f);
@@ -532,7 +544,7 @@ function isInsideToolbarOrDock(target: EventTarget | null): boolean {
 
 canvasShell.addEventListener('pointerdown', (e) => {
   const el = e.target as HTMLElement;
-  if (el.closest('.text-layer') || el.closest('.stage-add-btn')) return;
+  if (el.closest('.text-layer') || el.closest('.stage-toolbar')) return;
   state.selectedId = null;
   layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
   renderLayers();
