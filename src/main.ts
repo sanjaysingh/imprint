@@ -190,10 +190,11 @@ app.innerHTML = `
                 <line x1="12" y1="3" x2="12" y2="15" />
               </svg>
             </button>
-            <button type="button" class="icon-btn icon-btn--toolbar icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+            <button type="button" class="icon-btn icon-btn--toolbar icon-btn--toolbar-export icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
+              <svg class="icon-btn__export-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
+              <span class="icon-btn__format-label">text</span>
             </button>
           </div>
           <div class="canvas-toolbar__cluster canvas-toolbar__cluster--end">

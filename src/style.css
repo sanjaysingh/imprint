@@ -160,7 +160,7 @@ body {
   color: var(--accent);
 }
 
-/* Export: icon + format label in same 42×42 footprint as other toolbar buttons */
+/* Icon + short label stacked in same 42×42 footprint as plain toolbar icons */
 .icon-btn--toolbar.icon-btn--toolbar-export {
   flex-direction: column;
   gap: 1px;
@@ -174,11 +174,12 @@ body {
 }
 
 .icon-btn__format-label {
-  font-size: 0.5rem;
+  font-size: 0.5625rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: inherit;
+  /* Explicit contrast; do not rely on inherit (disabled / hover edge cases) */
+  color: rgba(244, 245, 248, 0.92);
 }
 
 /* ——— Canvas area ——— */
@@ -402,13 +403,20 @@ body {
   font: inherit;
   font-size: 0.8rem;
   font-weight: 500;
+  /* Solid dark surface so native select + options are never light-on-light */
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background-color: #1c1f28;
+  color-scheme: dark;
   border: 1px solid var(--glass-border);
   border-radius: 10px;
   padding: 6px 10px;
   max-width: 9.5rem;
   cursor: pointer;
+}
+
+.tb-select option {
+  background-color: #16181f;
+  color: var(--text);
 }
 
 .tb-select:focus {

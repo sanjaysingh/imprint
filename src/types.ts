@@ -16,7 +16,13 @@ export interface TextLayer {
 
 export const FONT_OPTIONS: { label: string; value: string }[] = [
   { label: 'DM Sans', value: 'DM Sans' },
+  { label: 'Noto Sans', value: 'Noto Sans' },
+  { label: 'Montserrat', value: 'Montserrat' },
+  { label: 'Oswald', value: 'Oswald' },
+  { label: 'Merriweather', value: 'Merriweather' },
   { label: 'Playfair Display', value: 'Playfair Display' },
   { label: 'Fraunces', value: 'Fraunces' },
   { label: 'JetBrains Mono', value: 'JetBrains Mono' },
+  { label: 'Pacifico', value: 'Pacifico' },
+  { label: 'Anton', value: 'Anton' },
 ];
