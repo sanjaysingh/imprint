@@ -4,7 +4,7 @@ import type { TextLayer } from './types';
 const MAX_EXPORT_LONG_EDGE = 1920;
 
 /** JPEG quality 0–1 (lower = smaller file, more compression). */
-const JPEG_EXPORT_QUALITY = 0.82;
+const JPEG_EXPORT_QUALITY = 0.75;
 
 function canvasFont(layer: TextLayer, sizePx: number): string {
   return `${layer.fontStyle} ${layer.fontWeight} ${sizePx}px "${layer.fontFamily}", sans-serif`;

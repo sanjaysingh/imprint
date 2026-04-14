@@ -136,26 +136,28 @@ body {
   cursor: not-allowed;
 }
 
-.icon-btn--plus {
-  background: rgba(8, 10, 16, 0.55);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-}
-
-.stage-add-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 20;
+.icon-btn--toolbar {
   width: 42px;
   height: 42px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-border);
 }
 
-.stage-add-btn.icon-btn--plus:hover:not(:disabled) {
-  background: rgba(110, 231, 255, 0.18);
-  border-color: rgba(110, 231, 255, 0.35);
+.icon-btn--toolbar:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.icon-btn--plus {
+  background: linear-gradient(145deg, rgba(110, 231, 255, 0.18), rgba(167, 139, 250, 0.12));
+  border-color: rgba(110, 231, 255, 0.25);
+}
+
+.icon-btn--toolbar.icon-btn--plus:hover:not(:disabled) {
+  background: linear-gradient(145deg, rgba(110, 231, 255, 0.28), rgba(167, 139, 250, 0.18));
+  border-color: rgba(110, 231, 255, 0.4);
+  color: var(--accent);
 }
 
 /* ——— Canvas area ——— */
@@ -231,7 +233,23 @@ body {
   width: 100%;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+}
+
+.stage-area {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.stage-toolbar {
+  display: flex;
+  justify-content: flex-end;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .stage {
