@@ -81,13 +81,32 @@ function createId(): string {
   return `t_${Math.random().toString(36).slice(2, 11)}`;
 }
 
+/** Unique default copy: "Your text", then "Your text 1", "Your text 2", … */
+function nextDefaultLayerLabel(): string {
+  const used = new Set(state.layers.map((l) => l.text.trim()));
+  if (!used.has('Your text')) return 'Your text';
+  for (let n = 1; ; n += 1) {
+    const label = `Your text ${n}`;
+    if (!used.has(label)) return label;
+  }
+}
+
+/** Stagger placement so new layers are not stacked on the same point. */
+function nextDefaultLayerPosition(): { nx: number; ny: number } {
+  const i = state.layers.length;
+  const nx = Math.max(0.1, Math.min(0.9, 0.5 + (((i % 5) - 2) * 0.04)));
+  const ny = Math.max(0.14, Math.min(0.86, 0.5 + i * 0.055));
+  return { nx, ny };
+}
+
 function defaultLayer(): TextLayer {
   const s = sessionTextDefaults;
+  const { nx, ny } = nextDefaultLayerPosition();
   return {
     id: createId(),
-    text: 'Your text',
-    nx: 0.5,
-    ny: 0.5,
+    text: nextDefaultLayerLabel(),
+    nx,
+    ny,
     sizeRatio: s.sizeRatio,
     fontFamily: s.fontFamily,
     fontWeight: s.fontWeight,
@@ -151,9 +170,24 @@ app.innerHTML = `
     <p class="tagline">Your words, your image — designed in your browser, never uploaded.</p>
 
     <main class="viewport">
-      <div class="canvas-shell" id="canvas-shell">
-        <div class="empty-state" id="empty-state">
-          <div class="empty-state-card">
+      <div class="canvas-workspace">
+        <div class="stage-toolbar canvas-toolbar" id="canvas-toolbar">
+          <button type="button" class="icon-btn icon-btn--toolbar" id="btn-replace-image" aria-label="Upload or replace image" title="Upload or replace image">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn icon-btn--toolbar icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="canvas-shell" id="canvas-shell">
+          <div class="empty-state" id="empty-state">
             <div class="empty-state-icon" aria-hidden="true">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -164,24 +198,8 @@ app.innerHTML = `
             <p class="empty-state-title">Add your image</p>
             <p class="empty-state-hint">Drop a file here or click to browse</p>
           </div>
-        </div>
 
-        <div class="stage-block hidden" id="stage-block">
-          <div class="stage-area">
-            <div class="stage-toolbar">
-              <button type="button" class="icon-btn icon-btn--toolbar" id="btn-replace-image" disabled aria-label="Replace image" title="Replace image">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="17 8 12 3 7 8" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-              </button>
-              <button type="button" class="icon-btn icon-btn--toolbar icon-btn--plus" id="btn-add-text" disabled aria-label="Add text layer" title="Add text">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-            </div>
+          <div class="stage-block hidden" id="stage-block">
             <div class="stage" id="stage">
               <img class="stage-img" id="stage-img" alt="Your image" />
               <div class="layers" id="layers"></div>
@@ -282,7 +300,6 @@ function setImageFromFile(file: File): void {
     state.imageObject = stageImg;
     emptyState.classList.add('hidden');
     stageBlock.classList.remove('hidden');
-    btnReplaceImage.disabled = false;
     btnAddText.disabled = false;
     btnPng.disabled = false;
     btnJpg.disabled = false;
@@ -651,7 +668,7 @@ function isInsideToolbarOrDock(target: EventTarget | null): boolean {
 
 canvasShell.addEventListener('pointerdown', (e) => {
   const el = e.target as HTMLElement;
-  if (el.closest('.text-layer') || el.closest('.stage-toolbar')) return;
+  if (el.closest('.text-layer')) return;
   state.selectedId = null;
   layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
   renderLayers();
@@ -664,7 +681,7 @@ document.addEventListener(
   (e) => {
     if (!state.imageObject) return;
     const el = e.target as HTMLElement;
-    if (el.closest('.canvas-shell') || isInsideToolbarOrDock(e.target)) return;
+    if (el.closest('.canvas-shell') || el.closest('.canvas-toolbar') || isInsideToolbarOrDock(e.target)) return;
     if (state.selectedId === null) return;
     state.selectedId = null;
     layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
