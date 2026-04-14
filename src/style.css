@@ -168,12 +168,34 @@ body {
   flex-direction: column;
 }
 
+.canvas-workspace {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.canvas-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 0 20px 10px;
+  box-sizing: border-box;
+}
+
 .canvas-shell {
   flex: 1;
   min-height: min(72dvh, 640px);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
   padding: 20px;
   border-radius: var(--radius-xl);
   background: rgba(255, 255, 255, 0.02);
@@ -189,26 +211,26 @@ body {
 }
 
 .empty-state {
+  flex: 1;
   width: 100%;
-  max-width: 420px;
-  cursor: pointer;
-}
-
-.empty-state-card {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
-  padding: 40px 28px;
-  border-radius: var(--radius-lg);
-  border: 1px dashed rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.2);
-  transition: border-color 0.2s, transform 0.15s;
+  padding: 16px;
+  cursor: pointer;
+  border-radius: calc(var(--radius-xl) - 4px);
+  transition: opacity 0.15s;
 }
 
-.empty-state:hover .empty-state-card {
-  border-color: rgba(110, 231, 255, 0.35);
+.empty-state:hover {
+  opacity: 0.95;
 }
 
-.empty-state:active .empty-state-card {
-  transform: scale(0.99);
+.empty-state:active {
+  opacity: 0.88;
 }
 
 .empty-state-icon {
@@ -231,31 +253,18 @@ body {
 }
 
 .stage-block {
+  flex: 1;
   width: 100%;
+  min-height: 0;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-}
-
-.stage-area {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-  max-width: 100%;
-}
-
-.stage-toolbar {
-  display: flex;
-  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .stage {
   position: relative;
   display: inline-block;
+  align-self: center;
   max-width: 100%;
   border-radius: 12px;
   overflow: visible;
@@ -518,6 +527,10 @@ body {
 }
 
 @media (max-width: 540px) {
+  .canvas-toolbar {
+    padding: 0 14px 10px;
+  }
+
   .canvas-shell {
     min-height: 58dvh;
     padding: 14px;
