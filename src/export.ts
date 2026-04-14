@@ -1,7 +1,7 @@
 import type { TextLayer } from './types';
 
 /** Longest side (px). Larger images are scaled down for smaller files; smaller images are not upscaled. */
-const MAX_EXPORT_LONG_EDGE = 1920;
+const MAX_EXPORT_LONG_EDGE = 1080;
 
 /** JPEG quality 0–1 (lower = smaller file, more compression). */
 const JPEG_EXPORT_QUALITY = 0.75;
