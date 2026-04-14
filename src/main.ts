@@ -120,6 +120,8 @@ type AppState = {
   imageObject: HTMLImageElement | null;
   layers: TextLayer[];
   selectedId: string | null;
+  /** Set when the user is typing in a layer (second tap); not set on select-only (first tap). */
+  editingLayerId: string | null;
 };
 
 const state: AppState = {
@@ -127,6 +129,7 @@ const state: AppState = {
   imageObject: null,
   layers: [],
   selectedId: null,
+  editingLayerId: null,
 };
 
 type DragSession = {
@@ -295,6 +298,7 @@ function setImageFromFile(file: File): void {
   state.imageSrc = url;
   state.layers = [];
   state.selectedId = null;
+  state.editingLayerId = null;
   stageImg.src = url;
   stageImg.onload = () => {
     state.imageObject = stageImg;
@@ -324,17 +328,18 @@ function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
   inner.style.fontStyle = layer.fontStyle;
   inner.style.color = layer.color;
   const isSelected = layer.id === state.selectedId;
-  inner.contentEditable = isSelected ? 'true' : 'false';
-  inner.tabIndex = isSelected ? 0 : -1;
+  const isEditing = isSelected && state.editingLayerId === layer.id;
+  inner.contentEditable = isEditing ? 'true' : 'false';
+  inner.tabIndex = isEditing ? 0 : -1;
   if (document.activeElement !== inner) {
     inner.textContent = layer.text;
   }
   el.classList.toggle('text-layer--selected', isSelected);
-  el.classList.toggle('text-layer--editing', isSelected && document.activeElement === inner);
+  el.classList.toggle('text-layer--editing', isEditing);
   el.dataset.id = layer.id;
 
   el.style.touchAction = 'none';
-  inner.style.touchAction = document.activeElement === inner ? 'auto' : 'none';
+  inner.style.touchAction = isEditing ? 'auto' : 'none';
 }
 
 function renderLayers(): void {
@@ -375,17 +380,21 @@ function renderLayers(): void {
       });
       inner.addEventListener('blur', () => {
         inner.style.touchAction = 'none';
+        if (state.editingLayerId === layer.id) {
+          state.editingLayerId = null;
+        }
         requestAnimationFrame(() => renderLayers());
       });
 
       inner.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
-        if (document.activeElement === inner) {
+        if (document.activeElement === inner && state.editingLayerId === layer.id) {
           return;
         }
         const wasSelected = state.selectedId === layer.id;
         if (!wasSelected) {
           state.selectedId = layer.id;
+          state.editingLayerId = null;
           renderLayers();
           syncToolboxFromLayer();
           rememberTextStyleFromLayer(layer);
@@ -465,6 +474,8 @@ function renderLayers(): void {
             if (!pointerCandidate.dragging) {
               requestAnimationFrame(() => {
                 if (!wasSelected) return;
+                state.editingLayerId = layer.id;
+                renderLayers();
                 const ed = layerEl.querySelector<HTMLElement>('.text-layer__inner');
                 ed?.focus();
                 const len = ed?.innerText.length ?? 0;
@@ -520,6 +531,13 @@ function renderLayers(): void {
   if (state.selectedId && !state.layers.some((l) => l.id === state.selectedId)) {
     state.selectedId = null;
   }
+  if (
+    state.editingLayerId &&
+    (state.editingLayerId !== state.selectedId ||
+      !state.layers.some((l) => l.id === state.editingLayerId))
+  ) {
+    state.editingLayerId = null;
+  }
   syncToolboxFromLayer();
   requestAnimationFrame(() => positionToolbox());
 }
@@ -532,7 +550,7 @@ function positionToolbox(): void {
     return;
   }
   const innerEl = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
-  if (innerEl && document.activeElement === innerEl) {
+  if (innerEl && state.editingLayerId === layer.id) {
     textToolbox.classList.add('hidden');
     return;
   }
@@ -611,6 +629,7 @@ tbDelete.addEventListener('click', () => {
   if (!id) return;
   state.layers = state.layers.filter((l) => l.id !== id);
   state.selectedId = null;
+  state.editingLayerId = null;
   renderLayers();
 });
 
@@ -619,6 +638,7 @@ btnAddText.addEventListener('click', () => {
   const layer = defaultLayer();
   state.layers.push(layer);
   state.selectedId = layer.id;
+  state.editingLayerId = layer.id;
   renderLayers();
   requestAnimationFrame(() => {
     const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
@@ -670,6 +690,7 @@ canvasShell.addEventListener('pointerdown', (e) => {
   const el = e.target as HTMLElement;
   if (el.closest('.text-layer')) return;
   state.selectedId = null;
+  state.editingLayerId = null;
   layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
   renderLayers();
 });
@@ -684,6 +705,7 @@ document.addEventListener(
     if (el.closest('.canvas-shell') || el.closest('.canvas-toolbar') || isInsideToolbarOrDock(e.target)) return;
     if (state.selectedId === null) return;
     state.selectedId = null;
+    state.editingLayerId = null;
     layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
     renderLayers();
   },
@@ -718,6 +740,7 @@ window.addEventListener('scroll', () => positionToolbox(), true);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     layersEl.querySelector<HTMLElement>('.text-layer__inner:focus')?.blur();
+    state.editingLayerId = null;
     if (state.selectedId !== null) {
       state.selectedId = null;
       renderLayers();
