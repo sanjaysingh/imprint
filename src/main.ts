@@ -669,37 +669,18 @@ tbDelete.addEventListener('click', () => {
   renderLayers();
 });
 
-function addTextLayerAndFocusKeyboard(): void {
+function addTextLayer(): void {
   if (!state.imageObject || btnAddText.disabled) return;
   const layer = defaultLayer();
   state.layers.push(layer);
-  state.selectedId = layer.id;
-  state.editingLayerId = layer.id;
+  state.selectedId = null;
+  state.editingLayerId = null;
   state.nextTextTapEntersEdit = false;
   renderLayers();
-  const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
-  if (ed) focusEditableInner(ed);
 }
 
-/** iOS only promotes the keyboard if focus runs in the same gesture; delayed `click` breaks that, so handle `touchend` first. */
-let addTextTouchConsumed = false;
-btnAddText.addEventListener(
-  'touchend',
-  (e) => {
-    if (!state.imageObject || btnAddText.disabled) return;
-    e.preventDefault();
-    addTextTouchConsumed = true;
-    addTextLayerAndFocusKeyboard();
-  },
-  { passive: false },
-);
-
 btnAddText.addEventListener('click', () => {
-  if (addTextTouchConsumed) {
-    addTextTouchConsumed = false;
-    return;
-  }
-  addTextLayerAndFocusKeyboard();
+  addTextLayer();
 });
 
 btnReplaceImage.addEventListener('click', () => openFilePicker());
