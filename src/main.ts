@@ -124,6 +124,8 @@ let pointerCandidate: {
   x: number;
   y: number;
   dragging: boolean;
+  /** When true, delay setPointerCapture until move passes drag threshold so caret/selection work after a click. */
+  deferCapture: boolean;
 } | null = null;
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -363,43 +365,66 @@ function renderLayers(): void {
           syncToolboxFromLayer();
           rememberTextStyleFromLayer(layer);
         }
-        if (document.activeElement === inner) {
-          positionToolbox();
-          return;
-        }
+        const editingFocused = document.activeElement === inner;
         pointerCandidate = {
           layerId: layer.id,
           pointerId: e.pointerId,
           x: e.clientX,
           y: e.clientY,
           dragging: false,
+          deferCapture: editingFocused,
         };
-        el!.setPointerCapture(e.pointerId);
+        if (!editingFocused) {
+          el!.setPointerCapture(e.pointerId);
+        }
         requestAnimationFrame(() => positionToolbox());
       });
 
       el.addEventListener('pointermove', (e) => {
-        if (pointerCandidate?.layerId === layer.id && pointerCandidate.pointerId === e.pointerId) {
-          e.preventDefault();
-          const dx = e.clientX - pointerCandidate.x;
-          const dy = e.clientY - pointerCandidate.y;
-          if (!pointerCandidate.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
-            pointerCandidate.dragging = true;
-            const innerEl = el!.querySelector<HTMLElement>('.text-layer__inner');
-            innerEl?.blur();
-            const rect = layersEl.getBoundingClientRect();
-            const lx = ((pointerCandidate.x - rect.left) / rect.width) * 100;
-            const ly = ((pointerCandidate.y - rect.top) / rect.height) * 100;
-            dragSession = {
-              layerId: layer.id,
-              pointerId: e.pointerId,
-              offsetXPct: lx - layer.nx * 100,
-              offsetYPct: ly - layer.ny * 100,
-            };
+        if (pointerCandidate?.layerId !== layer.id || pointerCandidate.pointerId !== e.pointerId) {
+          if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
+            e.preventDefault();
+            const r = layersEl.getBoundingClientRect();
+            let nx = ((e.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
+            let ny = ((e.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
+            nx = Math.max(0, Math.min(100, nx));
+            ny = Math.max(0, Math.min(100, ny));
+            layer.nx = nx / 100;
+            layer.ny = ny / 100;
+            el!.style.left = `${nx}%`;
+            el!.style.top = `${ny}%`;
+            positionToolbox();
           }
+          return;
         }
-        if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
+
+        const pc = pointerCandidate;
+        const dx = e.clientX - pc.x;
+        const dy = e.clientY - pc.y;
+        const pastThreshold = dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
+
+        if (!pc.dragging && pastThreshold) {
+          pc.dragging = true;
+          const innerEl = el!.querySelector<HTMLElement>('.text-layer__inner');
+          innerEl?.blur();
+          pc.deferCapture = false;
+          el!.setPointerCapture(e.pointerId);
+          const rect = layersEl.getBoundingClientRect();
+          const lx = ((pc.x - rect.left) / rect.width) * 100;
+          const ly = ((pc.y - rect.top) / rect.height) * 100;
+          dragSession = {
+            layerId: layer.id,
+            pointerId: e.pointerId,
+            offsetXPct: lx - layer.nx * 100,
+            offsetYPct: ly - layer.ny * 100,
+          };
+        }
+
+        if (pc.dragging || !pc.deferCapture) {
           e.preventDefault();
+        }
+
+        if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
           const r = layersEl.getBoundingClientRect();
           let nx = ((e.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
           let ny = ((e.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
