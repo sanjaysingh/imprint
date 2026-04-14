@@ -1,24 +1,43 @@
 import type { TextLayer } from './types';
 
+/** Longest side (px). Larger images are scaled down for smaller files; smaller images are not upscaled. */
+const MAX_EXPORT_LONG_EDGE = 1920;
+
+/** JPEG quality 0–1 (lower = smaller file, more compression). */
+const JPEG_EXPORT_QUALITY = 0.82;
+
 function canvasFont(layer: TextLayer, sizePx: number): string {
   return `${layer.fontStyle} ${layer.fontWeight} ${sizePx}px "${layer.fontFamily}", sans-serif`;
 }
 
+function exportDimensions(naturalW: number, naturalH: number): { w: number; h: number } {
+  const longEdge = Math.max(naturalW, naturalH);
+  if (longEdge <= MAX_EXPORT_LONG_EDGE) {
+    return { w: naturalW, h: naturalH };
+  }
+  const scale = MAX_EXPORT_LONG_EDGE / longEdge;
+  return {
+    w: Math.max(1, Math.round(naturalW * scale)),
+    h: Math.max(1, Math.round(naturalH * scale)),
+  };
+}
+
 /**
- * Draw image and all text layers onto a canvas at the image's natural size.
+ * Draw image and text onto a canvas sized for download (downscaled if huge, e.g. phone photos).
  */
-export function compositeToCanvas(
-  image: HTMLImageElement,
-  layers: TextLayer[],
-): HTMLCanvasElement {
-  const w = image.naturalWidth;
-  const h = image.naturalHeight;
+export function compositeToCanvas(image: HTMLImageElement, layers: TextLayer[]): HTMLCanvasElement {
+  const nw = image.naturalWidth;
+  const nh = image.naturalHeight;
+  const { w, h } = exportDimensions(nw, nh);
+
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D not available');
 
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(image, 0, 0, w, h);
 
   const lineHeightFactor = 1.25;
@@ -52,15 +71,29 @@ export function compositeToCanvas(
   return canvas;
 }
 
-export function downloadCanvas(canvas: HTMLCanvasElement, filename: string, type: 'image/png' | 'image/jpeg', quality?: number): void {
+export function downloadCanvas(
+  canvas: HTMLCanvasElement,
+  filename: string,
+  type: 'image/png' | 'image/jpeg',
+  quality?: number,
+): void {
   const mime = type;
-  const q = type === 'image/jpeg' ? quality ?? 0.92 : undefined;
-  const url = canvas.toDataURL(mime, q);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  const q = type === 'image/jpeg' ? (quality ?? JPEG_EXPORT_QUALITY) : undefined;
+
+  canvas.toBlob(
+    (blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2500);
+    },
+    mime,
+    q,
+  );
 }
