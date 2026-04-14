@@ -340,26 +340,32 @@ function renderLayers(): void {
         positionToolbox();
       });
 
-      el.addEventListener(
-        'pointerdown',
-        (e) => {
-          if (e.button !== 0) return;
+      inner.addEventListener('focus', () => positionToolbox());
+      inner.addEventListener('blur', () => requestAnimationFrame(() => positionToolbox()));
+
+      inner.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const wasSelected = state.selectedId === layer.id;
+        if (!wasSelected) {
           state.selectedId = layer.id;
           renderLayers();
           syncToolboxFromLayer();
           rememberTextStyleFromLayer(layer);
+        }
+        if (document.activeElement === inner) {
           requestAnimationFrame(() => positionToolbox());
-          pointerCandidate = {
-            layerId: layer.id,
-            pointerId: e.pointerId,
-            x: e.clientX,
-            y: e.clientY,
-            dragging: false,
-          };
-          el!.setPointerCapture(e.pointerId);
-        },
-        true,
-      );
+          return;
+        }
+        pointerCandidate = {
+          layerId: layer.id,
+          pointerId: e.pointerId,
+          x: e.clientX,
+          y: e.clientY,
+          dragging: false,
+        };
+        el!.setPointerCapture(e.pointerId);
+        requestAnimationFrame(() => positionToolbox());
+      });
 
       el.addEventListener('pointermove', (e) => {
         if (pointerCandidate && pointerCandidate.layerId === layer.id && pointerCandidate.pointerId === e.pointerId) {
@@ -450,7 +456,8 @@ function renderLayers(): void {
 
 function positionToolbox(): void {
   const layer = selectedLayer();
-  const show = !!(state.imageObject && layer && state.selectedId);
+  const show =
+    !!(state.imageObject && layer && state.selectedId) && !isSelectedLayerEditing();
   if (!show) {
     textToolbox.classList.add('hidden');
     return;
@@ -471,6 +478,18 @@ function positionToolbox(): void {
   left = Math.max(pad, Math.min(left, window.innerWidth - tb.width - pad));
   textToolbox.style.left = `${left}px`;
   textToolbox.style.top = `${top}px`;
+}
+
+function getInnerForLayerId(layerId: string): HTMLElement | null {
+  return layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layerId}"] .text-layer__inner`);
+}
+
+/** True when the selected layer's text field is focused (editing). */
+function isSelectedLayerEditing(): boolean {
+  const layer = selectedLayer();
+  if (!layer) return false;
+  const inner = getInnerForLayerId(layer.id);
+  return !!(inner && document.activeElement === inner);
 }
 
 function syncToolboxFromLayer(): void {
