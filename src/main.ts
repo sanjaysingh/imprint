@@ -126,6 +126,14 @@ let pointerCandidate: {
   dragging: boolean;
 } | null = null;
 
+/** Removes document pointer listeners for the active layer gesture (deferred capture until drag threshold). */
+let detachLayerPointerTracking: (() => void) | null = null;
+
+function detachLayerPointerTrackingIfAny(): void {
+  detachLayerPointerTracking?.();
+  detachLayerPointerTracking = null;
+}
+
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('#app missing');
 
@@ -362,10 +370,7 @@ function renderLayers(): void {
           syncToolboxFromLayer();
           rememberTextStyleFromLayer(layer);
         }
-        if (document.activeElement === inner) {
-          requestAnimationFrame(() => positionToolbox());
-          return;
-        }
+        detachLayerPointerTrackingIfAny();
         pointerCandidate = {
           layerId: layer.id,
           pointerId: e.pointerId,
@@ -373,101 +378,118 @@ function renderLayers(): void {
           y: e.clientY,
           dragging: false,
         };
-        el!.setPointerCapture(e.pointerId);
-        requestAnimationFrame(() => positionToolbox());
-      });
+        const pid = e.pointerId;
+        const layerEl = el!;
+        const onDocMove = (moveEv: PointerEvent) => {
+          if (moveEv.pointerId !== pid) return;
 
-      el.addEventListener('pointermove', (e) => {
-        if (pointerCandidate?.layerId !== layer.id || pointerCandidate.pointerId !== e.pointerId) {
-          if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
-            e.preventDefault();
+          if (pointerCandidate?.layerId !== layer.id || pointerCandidate.pointerId !== pid) {
+            if (dragSession?.layerId === layer.id && dragSession.pointerId === pid) {
+              moveEv.preventDefault();
+              const r = layersEl.getBoundingClientRect();
+              let nx = ((moveEv.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
+              let ny = ((moveEv.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
+              nx = Math.max(0, Math.min(100, nx));
+              ny = Math.max(0, Math.min(100, ny));
+              layer.nx = nx / 100;
+              layer.ny = ny / 100;
+              layerEl.style.left = `${nx}%`;
+              layerEl.style.top = `${ny}%`;
+              positionToolbox();
+            }
+            return;
+          }
+
+          const pc = pointerCandidate;
+          const dx = moveEv.clientX - pc.x;
+          const dy = moveEv.clientY - pc.y;
+          if (!pc.dragging && dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+            return;
+          }
+
+          if (!pc.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+            pc.dragging = true;
+            inner.blur();
+            layerEl.setPointerCapture(pid);
+            const rect = layersEl.getBoundingClientRect();
+            const lx = ((pc.x - rect.left) / rect.width) * 100;
+            const ly = ((pc.y - rect.top) / rect.height) * 100;
+            dragSession = {
+              layerId: layer.id,
+              pointerId: pid,
+              offsetXPct: lx - layer.nx * 100,
+              offsetYPct: ly - layer.ny * 100,
+            };
+          }
+
+          if (dragSession?.layerId === layer.id && dragSession.pointerId === pid) {
+            moveEv.preventDefault();
             const r = layersEl.getBoundingClientRect();
-            let nx = ((e.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
-            let ny = ((e.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
+            let nx = ((moveEv.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
+            let ny = ((moveEv.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
             nx = Math.max(0, Math.min(100, nx));
             ny = Math.max(0, Math.min(100, ny));
             layer.nx = nx / 100;
             layer.ny = ny / 100;
-            el!.style.left = `${nx}%`;
-            el!.style.top = `${ny}%`;
+            layerEl.style.left = `${nx}%`;
+            layerEl.style.top = `${ny}%`;
             positionToolbox();
           }
-          return;
-        }
+        };
 
-        const pc = pointerCandidate;
-        e.preventDefault();
-        const dx = e.clientX - pc.x;
-        const dy = e.clientY - pc.y;
-        if (!pc.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
-          pc.dragging = true;
-          const innerEl = el!.querySelector<HTMLElement>('.text-layer__inner');
-          innerEl?.blur();
-          const rect = layersEl.getBoundingClientRect();
-          const lx = ((pc.x - rect.left) / rect.width) * 100;
-          const ly = ((pc.y - rect.top) / rect.height) * 100;
-          dragSession = {
-            layerId: layer.id,
-            pointerId: e.pointerId,
-            offsetXPct: lx - layer.nx * 100,
-            offsetYPct: ly - layer.ny * 100,
-          };
-        }
-        if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
-          e.preventDefault();
-          const r = layersEl.getBoundingClientRect();
-          let nx = ((e.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
-          let ny = ((e.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
-          nx = Math.max(0, Math.min(100, nx));
-          ny = Math.max(0, Math.min(100, ny));
-          layer.nx = nx / 100;
-          layer.ny = ny / 100;
-          el!.style.left = `${nx}%`;
-          el!.style.top = `${ny}%`;
-          positionToolbox();
-        }
-      });
+        const onDocUp = (upEv: PointerEvent) => {
+          if (upEv.pointerId !== pid) return;
+          detachLayerPointerTrackingIfAny();
 
-      const endPointer = (e: PointerEvent) => {
-        if (pointerCandidate?.pointerId === e.pointerId && pointerCandidate.layerId === layer.id) {
-          if (!pointerCandidate.dragging) {
-            requestAnimationFrame(() => {
-              const ed = el!.querySelector<HTMLElement>('.text-layer__inner');
-              ed?.focus();
-              const len = ed?.innerText.length ?? 0;
-              try {
-                const range = document.createRange();
-                const sel = window.getSelection();
-                const node = ed?.firstChild;
-                if (ed && sel && node && node.nodeType === Node.TEXT_NODE) {
-                  range.setStart(node, len);
-                  range.collapse(true);
-                  sel.removeAllRanges();
-                  sel.addRange(range);
-                } else if (ed && sel) {
-                  range.selectNodeContents(ed);
-                  range.collapse(false);
-                  sel.removeAllRanges();
-                  sel.addRange(range);
+          if (pointerCandidate?.pointerId === pid && pointerCandidate.layerId === layer.id) {
+            if (!pointerCandidate.dragging) {
+              requestAnimationFrame(() => {
+                const ed = layerEl.querySelector<HTMLElement>('.text-layer__inner');
+                ed?.focus();
+                const len = ed?.innerText.length ?? 0;
+                try {
+                  const range = document.createRange();
+                  const sel = window.getSelection();
+                  const node = ed?.firstChild;
+                  if (ed && sel && node && node.nodeType === Node.TEXT_NODE) {
+                    range.setStart(node, len);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                  } else if (ed && sel) {
+                    range.selectNodeContents(ed);
+                    range.collapse(false);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                  }
+                } catch {
+                  /* ignore */
                 }
-              } catch {
-                /* ignore */
-              }
-            });
+              });
+            }
+            pointerCandidate = null;
           }
-          pointerCandidate = null;
-        }
-        if (dragSession?.pointerId === e.pointerId) {
-          dragSession = null;
-        }
-        try {
-          el!.releasePointerCapture(e.pointerId);
-        } catch {
-          /* ignore */
-        }
-      };
-      el.addEventListener('pointerup', endPointer);
-      el.addEventListener('pointercancel', endPointer);
+          if (dragSession?.pointerId === pid) {
+            dragSession = null;
+          }
+          try {
+            layerEl.releasePointerCapture(pid);
+          } catch {
+            /* ignore */
+          }
+        };
+
+        document.addEventListener('pointermove', onDocMove, true);
+        document.addEventListener('pointerup', onDocUp, true);
+        document.addEventListener('pointercancel', onDocUp, true);
+        detachLayerPointerTracking = () => {
+          document.removeEventListener('pointermove', onDocMove, true);
+          document.removeEventListener('pointerup', onDocUp, true);
+          document.removeEventListener('pointercancel', onDocUp, true);
+        };
+
+        requestAnimationFrame(() => positionToolbox());
+      });
 
       layersEl.appendChild(el);
     }
@@ -481,16 +503,9 @@ function renderLayers(): void {
   requestAnimationFrame(() => positionToolbox());
 }
 
-function isSelectedLayerEditing(): boolean {
-  const layer = selectedLayer();
-  if (!layer) return false;
-  const inner = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
-  return !!(inner && document.activeElement === inner);
-}
-
 function positionToolbox(): void {
   const layer = selectedLayer();
-  const show = !!(state.imageObject && layer && state.selectedId) && !isSelectedLayerEditing();
+  const show = !!(state.imageObject && layer && state.selectedId);
   if (!show) {
     textToolbox.classList.add('hidden');
     return;
