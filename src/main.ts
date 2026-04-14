@@ -565,7 +565,7 @@ function exportImage(kind: 'png' | 'jpg'): void {
   const canvas = compositeToCanvas(img, state.layers);
   const base = 'imprint-export';
   if (kind === 'png') downloadCanvas(canvas, `${base}.png`, 'image/png');
-  else downloadCanvas(canvas, `${base}.jpg`, 'image/jpeg', 0.92);
+  else downloadCanvas(canvas, `${base}.jpg`, 'image/jpeg');
 }
 
 btnPng.addEventListener('click', () => exportImage('png'));
