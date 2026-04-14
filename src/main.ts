@@ -361,32 +361,72 @@ function renderLayers(): void {
         requestAnimationFrame(() => renderLayers());
       });
 
-      inner.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0) return;
-        if (document.activeElement === inner) {
-          return;
-        }
-        const wasSelected = state.selectedId === layer.id;
-        if (!wasSelected) {
-          state.selectedId = layer.id;
-          renderLayers();
-          syncToolboxFromLayer();
-          rememberTextStyleFromLayer(layer);
-        }
-        detachLayerPointerTrackingIfAny();
-        pointerCandidate = {
-          layerId: layer.id,
-          pointerId: e.pointerId,
-          x: e.clientX,
-          y: e.clientY,
-          dragging: false,
-        };
-        const pid = e.pointerId;
-        const layerEl = el!;
-        const onDocMove = (moveEv: PointerEvent) => {
-          if (moveEv.pointerId !== pid) return;
+      inner.addEventListener(
+        'pointerdown',
+        (e) => {
+          if (e.button !== 0) return;
+          if (document.activeElement === inner) {
+            return;
+          }
+          const wasSelected = state.selectedId === layer.id;
+          if (!wasSelected) {
+            state.selectedId = layer.id;
+            renderLayers();
+            syncToolboxFromLayer();
+            rememberTextStyleFromLayer(layer);
+          }
+          detachLayerPointerTrackingIfAny();
+          pointerCandidate = {
+            layerId: layer.id,
+            pointerId: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            dragging: false,
+          };
+          const pid = e.pointerId;
+          const layerEl = el!;
+          const onDocMove = (moveEv: PointerEvent) => {
+            if (moveEv.pointerId !== pid) return;
 
-          if (pointerCandidate?.layerId !== layer.id || pointerCandidate.pointerId !== pid) {
+            if (pointerCandidate?.layerId !== layer.id || pointerCandidate.pointerId !== pid) {
+              if (dragSession?.layerId === layer.id && dragSession.pointerId === pid) {
+                moveEv.preventDefault();
+                const r = layersEl.getBoundingClientRect();
+                let nx = ((moveEv.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
+                let ny = ((moveEv.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
+                nx = Math.max(0, Math.min(100, nx));
+                ny = Math.max(0, Math.min(100, ny));
+                layer.nx = nx / 100;
+                layer.ny = ny / 100;
+                layerEl.style.left = `${nx}%`;
+                layerEl.style.top = `${ny}%`;
+                positionToolbox();
+              }
+              return;
+            }
+
+            const pc = pointerCandidate;
+            const dx = moveEv.clientX - pc.x;
+            const dy = moveEv.clientY - pc.y;
+            if (!pc.dragging && dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+              return;
+            }
+
+            if (!pc.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+              pc.dragging = true;
+              inner.blur();
+              layerEl.setPointerCapture(pid);
+              const rect = layersEl.getBoundingClientRect();
+              const lx = ((pc.x - rect.left) / rect.width) * 100;
+              const ly = ((pc.y - rect.top) / rect.height) * 100;
+              dragSession = {
+                layerId: layer.id,
+                pointerId: pid,
+                offsetXPct: lx - layer.nx * 100,
+                offsetYPct: ly - layer.ny * 100,
+              };
+            }
+
             if (dragSession?.layerId === layer.id && dragSession.pointerId === pid) {
               moveEv.preventDefault();
               const r = layersEl.getBoundingClientRect();
@@ -400,99 +440,63 @@ function renderLayers(): void {
               layerEl.style.top = `${ny}%`;
               positionToolbox();
             }
-            return;
-          }
+          };
 
-          const pc = pointerCandidate;
-          const dx = moveEv.clientX - pc.x;
-          const dy = moveEv.clientY - pc.y;
-          if (!pc.dragging && dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
-            return;
-          }
+          const onDocUp = (upEv: PointerEvent) => {
+            if (upEv.pointerId !== pid) return;
+            detachLayerPointerTrackingIfAny();
 
-          if (!pc.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
-            pc.dragging = true;
-            inner.blur();
-            layerEl.setPointerCapture(pid);
-            const rect = layersEl.getBoundingClientRect();
-            const lx = ((pc.x - rect.left) / rect.width) * 100;
-            const ly = ((pc.y - rect.top) / rect.height) * 100;
-            dragSession = {
-              layerId: layer.id,
-              pointerId: pid,
-              offsetXPct: lx - layer.nx * 100,
-              offsetYPct: ly - layer.ny * 100,
-            };
-          }
-
-          if (dragSession?.layerId === layer.id && dragSession.pointerId === pid) {
-            moveEv.preventDefault();
-            const r = layersEl.getBoundingClientRect();
-            let nx = ((moveEv.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
-            let ny = ((moveEv.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
-            nx = Math.max(0, Math.min(100, nx));
-            ny = Math.max(0, Math.min(100, ny));
-            layer.nx = nx / 100;
-            layer.ny = ny / 100;
-            layerEl.style.left = `${nx}%`;
-            layerEl.style.top = `${ny}%`;
-            positionToolbox();
-          }
-        };
-
-        const onDocUp = (upEv: PointerEvent) => {
-          if (upEv.pointerId !== pid) return;
-          detachLayerPointerTrackingIfAny();
-
-          if (pointerCandidate?.pointerId === pid && pointerCandidate.layerId === layer.id) {
-            if (!pointerCandidate.dragging) {
-              requestAnimationFrame(() => {
-                const ed = layerEl.querySelector<HTMLElement>('.text-layer__inner');
-                ed?.focus();
-                const len = ed?.innerText.length ?? 0;
-                try {
-                  const range = document.createRange();
-                  const sel = window.getSelection();
-                  const node = ed?.firstChild;
-                  if (ed && sel && node && node.nodeType === Node.TEXT_NODE) {
-                    range.setStart(node, len);
-                    range.collapse(true);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                  } else if (ed && sel) {
-                    range.selectNodeContents(ed);
-                    range.collapse(false);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
+            if (pointerCandidate?.pointerId === pid && pointerCandidate.layerId === layer.id) {
+              if (!pointerCandidate.dragging) {
+                requestAnimationFrame(() => {
+                  const ed = layerEl.querySelector<HTMLElement>('.text-layer__inner');
+                  ed?.focus();
+                  const len = ed?.innerText.length ?? 0;
+                  try {
+                    const range = document.createRange();
+                    const sel = window.getSelection();
+                    const node = ed?.firstChild;
+                    if (ed && sel && node && node.nodeType === Node.TEXT_NODE) {
+                      range.setStart(node, len);
+                      range.collapse(true);
+                      sel.removeAllRanges();
+                      sel.addRange(range);
+                    } else if (ed && sel) {
+                      range.selectNodeContents(ed);
+                      range.collapse(false);
+                      sel.removeAllRanges();
+                      sel.addRange(range);
+                    }
+                  } catch {
+                    /* ignore */
                   }
-                } catch {
-                  /* ignore */
-                }
-              });
+                });
+              }
+              pointerCandidate = null;
             }
-            pointerCandidate = null;
-          }
-          if (dragSession?.pointerId === pid) {
-            dragSession = null;
-          }
-          try {
-            layerEl.releasePointerCapture(pid);
-          } catch {
-            /* ignore */
-          }
-        };
+            if (dragSession?.pointerId === pid) {
+              dragSession = null;
+            }
+            try {
+              layerEl.releasePointerCapture(pid);
+            } catch {
+              /* ignore */
+            }
+          };
 
-        document.addEventListener('pointermove', onDocMove, true);
-        document.addEventListener('pointerup', onDocUp, true);
-        document.addEventListener('pointercancel', onDocUp, true);
-        detachLayerPointerTracking = () => {
-          document.removeEventListener('pointermove', onDocMove, true);
-          document.removeEventListener('pointerup', onDocUp, true);
-          document.removeEventListener('pointercancel', onDocUp, true);
-        };
+          document.addEventListener('pointermove', onDocMove, true);
+          document.addEventListener('pointerup', onDocUp, true);
+          document.addEventListener('pointercancel', onDocUp, true);
+          detachLayerPointerTracking = () => {
+            document.removeEventListener('pointermove', onDocMove, true);
+            document.removeEventListener('pointerup', onDocUp, true);
+            document.removeEventListener('pointercancel', onDocUp, true);
+          };
 
-        requestAnimationFrame(() => positionToolbox());
-      });
+          requestAnimationFrame(() => positionToolbox());
+        },
+        true,
+      );
 
       layersEl.appendChild(el);
     }
