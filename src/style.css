@@ -287,6 +287,7 @@ body {
   transform: translate(-50%, -50%);
   pointer-events: auto;
   touch-action: none;
+  width: max-content;
   max-width: min(92%, 26rem);
   padding: 2px;
   border-radius: 8px;
