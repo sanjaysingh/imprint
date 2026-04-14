@@ -4,8 +4,39 @@ import { FONT_OPTIONS, type TextLayer } from './types';
 
 const DRAG_THRESHOLD_PX = 6;
 
+/** In-session defaults for new text layers (reset when a new image is loaded). */
+type TextStyleDefaults = {
+  sizeRatio: number;
+  fontFamily: string;
+  fontWeight: 400 | 700;
+  fontStyle: 'normal' | 'italic';
+  color: string;
+};
+
+const FALLBACK_TEXT_DEFAULTS: TextStyleDefaults = {
+  sizeRatio: 0.055,
+  fontFamily: FONT_OPTIONS[0].value,
+  fontWeight: 700,
+  fontStyle: 'normal',
+  color: '#ffffff',
+};
+
+function hexToInputColor(c: string): string {
+  const s = c.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    const r = s[1],
+      g = s[2],
+      b = s[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return '#ffffff';
+}
+
 /** Preset sizes (labels ≈ familiar scale); ratio = fraction of image height when exported */
 const SIZE_PRESETS: { label: string; ratio: number }[] = [
+  { label: '8', ratio: 0.018 },
+  { label: '10', ratio: 0.023 },
   { label: '12', ratio: 0.028 },
   { label: '14', ratio: 0.033 },
   { label: '16', ratio: 0.038 },
@@ -30,21 +61,38 @@ function nearestPresetRatio(ratio: number): number {
   return best;
 }
 
+let sessionTextDefaults: TextStyleDefaults = { ...FALLBACK_TEXT_DEFAULTS };
+
+function resetSessionTextDefaults(): void {
+  sessionTextDefaults = { ...FALLBACK_TEXT_DEFAULTS };
+}
+
+function rememberTextStyleFromLayer(layer: TextLayer): void {
+  sessionTextDefaults = {
+    sizeRatio: nearestPresetRatio(layer.sizeRatio),
+    fontFamily: layer.fontFamily,
+    fontWeight: layer.fontWeight,
+    fontStyle: layer.fontStyle,
+    color: hexToInputColor(layer.color),
+  };
+}
+
 function createId(): string {
   return `t_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 function defaultLayer(): TextLayer {
+  const s = sessionTextDefaults;
   return {
     id: createId(),
     text: 'Your text',
     nx: 0.5,
     ny: 0.5,
-    sizeRatio: 0.055,
-    fontFamily: FONT_OPTIONS[0].value,
-    fontWeight: 700,
-    fontStyle: 'normal',
-    color: '#ffffff',
+    sizeRatio: s.sizeRatio,
+    fontFamily: s.fontFamily,
+    fontWeight: s.fontWeight,
+    fontStyle: s.fontStyle,
+    color: s.color,
   };
 }
 
@@ -215,6 +263,7 @@ function selectedLayer(): TextLayer | null {
 
 function setImageFromFile(file: File): void {
   if (!file.type.startsWith('image/')) return;
+  resetSessionTextDefaults();
   const url = URL.createObjectURL(file);
   if (state.imageSrc) URL.revokeObjectURL(state.imageSrc);
   state.imageSrc = url;
@@ -241,7 +290,7 @@ function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
   el.style.left = `${layer.nx * 100}%`;
   el.style.top = `${layer.ny * 100}%`;
   const displayH = stageImg.getBoundingClientRect().height || 1;
-  const fontPx = Math.max(10, layer.sizeRatio * displayH);
+  const fontPx = Math.max(4, layer.sizeRatio * displayH);
   const inner = el.querySelector<HTMLElement>('.text-layer__inner');
   if (!inner) return;
   inner.style.fontFamily = `"${layer.fontFamily}", sans-serif`;
@@ -298,6 +347,7 @@ function renderLayers(): void {
           state.selectedId = layer.id;
           renderLayers();
           syncToolboxFromLayer();
+          rememberTextStyleFromLayer(layer);
           requestAnimationFrame(() => positionToolbox());
           pointerCandidate = {
             layerId: layer.id,
@@ -435,22 +485,11 @@ function syncToolboxFromLayer(): void {
   tbColor.value = hexToInputColor(layer.color);
 }
 
-function hexToInputColor(c: string): string {
-  const s = c.trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase();
-  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
-    const r = s[1],
-      g = s[2],
-      b = s[3];
-    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
-  }
-  return '#ffffff';
-}
-
 tbFont.addEventListener('change', () => {
   const layer = selectedLayer();
   if (!layer) return;
   layer.fontFamily = tbFont.value;
+  rememberTextStyleFromLayer(layer);
   renderLayers();
 });
 
@@ -458,6 +497,7 @@ tbSize.addEventListener('change', () => {
   const layer = selectedLayer();
   if (!layer) return;
   layer.sizeRatio = Number(tbSize.value);
+  rememberTextStyleFromLayer(layer);
   renderLayers();
 });
 
@@ -465,6 +505,7 @@ tbBold.addEventListener('click', () => {
   const layer = selectedLayer();
   if (!layer) return;
   layer.fontWeight = layer.fontWeight >= 700 ? 400 : 700;
+  rememberTextStyleFromLayer(layer);
   renderLayers();
 });
 
@@ -472,6 +513,7 @@ tbItalic.addEventListener('click', () => {
   const layer = selectedLayer();
   if (!layer) return;
   layer.fontStyle = layer.fontStyle === 'italic' ? 'normal' : 'italic';
+  rememberTextStyleFromLayer(layer);
   renderLayers();
 });
 
@@ -479,6 +521,7 @@ tbColor.addEventListener('input', () => {
   const layer = selectedLayer();
   if (!layer) return;
   layer.color = tbColor.value;
+  rememberTextStyleFromLayer(layer);
   renderLayers();
 });
 
