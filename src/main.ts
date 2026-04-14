@@ -363,6 +363,9 @@ function renderLayers(): void {
 
       inner.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
+        if (document.activeElement === inner) {
+          return;
+        }
         const wasSelected = state.selectedId === layer.id;
         if (!wasSelected) {
           state.selectedId = layer.id;
