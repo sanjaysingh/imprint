@@ -124,8 +124,6 @@ let pointerCandidate: {
   x: number;
   y: number;
   dragging: boolean;
-  /** When true, delay setPointerCapture until move passes drag threshold so caret/selection work after a click. */
-  deferCapture: boolean;
 } | null = null;
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -307,6 +305,7 @@ function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
     inner.textContent = layer.text;
   }
   el.classList.toggle('text-layer--selected', isSelected);
+  el.classList.toggle('text-layer--editing', isSelected && document.activeElement === inner);
   el.dataset.id = layer.id;
 
   el.style.touchAction = 'none';
@@ -347,13 +346,11 @@ function renderLayers(): void {
 
       inner.addEventListener('focus', () => {
         inner.style.touchAction = 'auto';
-        positionToolbox();
+        renderLayers();
       });
       inner.addEventListener('blur', () => {
         inner.style.touchAction = 'none';
-        requestAnimationFrame(() => {
-          positionToolbox();
-        });
+        requestAnimationFrame(() => renderLayers());
       });
 
       inner.addEventListener('pointerdown', (e) => {
@@ -365,18 +362,18 @@ function renderLayers(): void {
           syncToolboxFromLayer();
           rememberTextStyleFromLayer(layer);
         }
-        const editingFocused = document.activeElement === inner;
+        if (document.activeElement === inner) {
+          requestAnimationFrame(() => positionToolbox());
+          return;
+        }
         pointerCandidate = {
           layerId: layer.id,
           pointerId: e.pointerId,
           x: e.clientX,
           y: e.clientY,
           dragging: false,
-          deferCapture: editingFocused,
         };
-        if (!editingFocused) {
-          el!.setPointerCapture(e.pointerId);
-        }
+        el!.setPointerCapture(e.pointerId);
         requestAnimationFrame(() => positionToolbox());
       });
 
@@ -399,16 +396,13 @@ function renderLayers(): void {
         }
 
         const pc = pointerCandidate;
+        e.preventDefault();
         const dx = e.clientX - pc.x;
         const dy = e.clientY - pc.y;
-        const pastThreshold = dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
-
-        if (!pc.dragging && pastThreshold) {
+        if (!pc.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
           pc.dragging = true;
           const innerEl = el!.querySelector<HTMLElement>('.text-layer__inner');
           innerEl?.blur();
-          pc.deferCapture = false;
-          el!.setPointerCapture(e.pointerId);
           const rect = layersEl.getBoundingClientRect();
           const lx = ((pc.x - rect.left) / rect.width) * 100;
           const ly = ((pc.y - rect.top) / rect.height) * 100;
@@ -419,12 +413,8 @@ function renderLayers(): void {
             offsetYPct: ly - layer.ny * 100,
           };
         }
-
-        if (pc.dragging || !pc.deferCapture) {
-          e.preventDefault();
-        }
-
         if (dragSession?.layerId === layer.id && dragSession.pointerId === e.pointerId) {
+          e.preventDefault();
           const r = layersEl.getBoundingClientRect();
           let nx = ((e.clientX - r.left) / r.width) * 100 - dragSession.offsetXPct;
           let ny = ((e.clientY - r.top) / r.height) * 100 - dragSession.offsetYPct;
@@ -491,9 +481,16 @@ function renderLayers(): void {
   requestAnimationFrame(() => positionToolbox());
 }
 
+function isSelectedLayerEditing(): boolean {
+  const layer = selectedLayer();
+  if (!layer) return false;
+  const inner = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
+  return !!(inner && document.activeElement === inner);
+}
+
 function positionToolbox(): void {
   const layer = selectedLayer();
-  const show = !!(state.imageObject && layer && state.selectedId);
+  const show = !!(state.imageObject && layer && state.selectedId) && !isSelectedLayerEditing();
   if (!show) {
     textToolbox.classList.add('hidden');
     return;
