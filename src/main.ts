@@ -325,6 +325,30 @@ function openFilePicker(): void {
   fileInput.click();
 }
 
+/** Focus a contenteditable and place the caret; must run in the same user gesture as the tap (no rAF) so iOS shows the keyboard. */
+function focusEditableInner(ed: HTMLElement): void {
+  ed.focus({ preventScroll: true });
+  const len = ed.innerText.length;
+  try {
+    const range = document.createRange();
+    const sel = window.getSelection();
+    const node = ed.firstChild;
+    if (sel && node && node.nodeType === Node.TEXT_NODE) {
+      range.setStart(node, len);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else if (sel) {
+      range.selectNodeContents(ed);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
   el.style.left = `${layer.nx * 100}%`;
   el.style.top = `${layer.ny * 100}%`;
@@ -341,6 +365,15 @@ function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
   const isEditing = isSelected && state.editingLayerId === layer.id;
   inner.contentEditable = isEditing ? 'true' : 'false';
   inner.tabIndex = isEditing ? 0 : -1;
+  if (isEditing) {
+    inner.setAttribute('inputmode', 'text');
+    inner.setAttribute('autocapitalize', 'sentences');
+    inner.setAttribute('autocorrect', 'on');
+  } else {
+    inner.removeAttribute('inputmode');
+    inner.removeAttribute('autocapitalize');
+    inner.removeAttribute('autocorrect');
+  }
   if (document.activeElement !== inner) {
     inner.textContent = layer.text;
   }
@@ -489,37 +522,17 @@ function renderLayers(): void {
 
           if (pointerCandidate?.pointerId === pid && pointerCandidate.layerId === layer.id) {
             if (!pointerCandidate.dragging) {
-              requestAnimationFrame(() => {
-                if (state.selectedId !== layer.id || state.editingLayerId === layer.id) return;
-                if (!state.nextTextTapEntersEdit) {
-                  state.nextTextTapEntersEdit = true;
-                  return;
-                }
+              if (state.selectedId !== layer.id || state.editingLayerId === layer.id) {
+                /* noop */
+              } else if (!state.nextTextTapEntersEdit) {
+                state.nextTextTapEntersEdit = true;
+              } else {
                 state.nextTextTapEntersEdit = false;
                 state.editingLayerId = layer.id;
                 renderLayers();
                 const ed = layerEl.querySelector<HTMLElement>('.text-layer__inner');
-                ed?.focus();
-                const len = ed?.innerText.length ?? 0;
-                try {
-                  const range = document.createRange();
-                  const sel = window.getSelection();
-                  const node = ed?.firstChild;
-                  if (ed && sel && node && node.nodeType === Node.TEXT_NODE) {
-                    range.setStart(node, len);
-                    range.collapse(true);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                  } else if (ed && sel) {
-                    range.selectNodeContents(ed);
-                    range.collapse(false);
-                    sel.removeAllRanges();
-                    sel.addRange(range);
-                  }
-                } catch {
-                  /* ignore */
-                }
-              });
+                if (ed) focusEditableInner(ed);
+              }
             }
             pointerCandidate = null;
           }
@@ -656,18 +669,37 @@ tbDelete.addEventListener('click', () => {
   renderLayers();
 });
 
-btnAddText.addEventListener('click', () => {
-  if (!state.imageObject) return;
+function addTextLayerAndFocusKeyboard(): void {
+  if (!state.imageObject || btnAddText.disabled) return;
   const layer = defaultLayer();
   state.layers.push(layer);
   state.selectedId = layer.id;
   state.editingLayerId = layer.id;
   state.nextTextTapEntersEdit = false;
   renderLayers();
-  requestAnimationFrame(() => {
-    const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
-    ed?.focus();
-  });
+  const ed = layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layer.id}"] .text-layer__inner`);
+  if (ed) focusEditableInner(ed);
+}
+
+/** iOS only promotes the keyboard if focus runs in the same gesture; delayed `click` breaks that, so handle `touchend` first. */
+let addTextTouchConsumed = false;
+btnAddText.addEventListener(
+  'touchend',
+  (e) => {
+    if (!state.imageObject || btnAddText.disabled) return;
+    e.preventDefault();
+    addTextTouchConsumed = true;
+    addTextLayerAndFocusKeyboard();
+  },
+  { passive: false },
+);
+
+btnAddText.addEventListener('click', () => {
+  if (addTextTouchConsumed) {
+    addTextTouchConsumed = false;
+    return;
+  }
+  addTextLayerAndFocusKeyboard();
 });
 
 btnReplaceImage.addEventListener('click', () => openFilePicker());
