@@ -306,6 +306,9 @@ function applyLayerVisuals(el: HTMLElement, layer: TextLayer): void {
   }
   el.classList.toggle('text-layer--selected', isSelected);
   el.dataset.id = layer.id;
+
+  el.style.touchAction = 'none';
+  inner.style.touchAction = document.activeElement === inner ? 'auto' : 'none';
 }
 
 function renderLayers(): void {
@@ -340,8 +343,16 @@ function renderLayers(): void {
         positionToolbox();
       });
 
-      inner.addEventListener('focus', () => positionToolbox());
-      inner.addEventListener('blur', () => requestAnimationFrame(() => positionToolbox()));
+      inner.addEventListener('focus', () => {
+        inner.style.touchAction = 'auto';
+        positionToolbox();
+      });
+      inner.addEventListener('blur', () => {
+        inner.style.touchAction = 'none';
+        requestAnimationFrame(() => {
+          positionToolbox();
+        });
+      });
 
       inner.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
@@ -353,7 +364,7 @@ function renderLayers(): void {
           rememberTextStyleFromLayer(layer);
         }
         if (document.activeElement === inner) {
-          requestAnimationFrame(() => positionToolbox());
+          positionToolbox();
           return;
         }
         pointerCandidate = {
@@ -368,7 +379,8 @@ function renderLayers(): void {
       });
 
       el.addEventListener('pointermove', (e) => {
-        if (pointerCandidate && pointerCandidate.layerId === layer.id && pointerCandidate.pointerId === e.pointerId) {
+        if (pointerCandidate?.layerId === layer.id && pointerCandidate.pointerId === e.pointerId) {
+          e.preventDefault();
           const dx = e.clientX - pointerCandidate.x;
           const dy = e.clientY - pointerCandidate.y;
           if (!pointerCandidate.dragging && dx * dx + dy * dy >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
@@ -456,8 +468,7 @@ function renderLayers(): void {
 
 function positionToolbox(): void {
   const layer = selectedLayer();
-  const show =
-    !!(state.imageObject && layer && state.selectedId) && !isSelectedLayerEditing();
+  const show = !!(state.imageObject && layer && state.selectedId);
   if (!show) {
     textToolbox.classList.add('hidden');
     return;
@@ -478,18 +489,6 @@ function positionToolbox(): void {
   left = Math.max(pad, Math.min(left, window.innerWidth - tb.width - pad));
   textToolbox.style.left = `${left}px`;
   textToolbox.style.top = `${top}px`;
-}
-
-function getInnerForLayerId(layerId: string): HTMLElement | null {
-  return layersEl.querySelector<HTMLElement>(`.text-layer[data-id="${layerId}"] .text-layer__inner`);
-}
-
-/** True when the selected layer's text field is focused (editing). */
-function isSelectedLayerEditing(): boolean {
-  const layer = selectedLayer();
-  if (!layer) return false;
-  const inner = getInnerForLayerId(layer.id);
-  return !!(inner && document.activeElement === inner);
 }
 
 function syncToolboxFromLayer(): void {
