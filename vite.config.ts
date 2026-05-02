@@ -8,6 +8,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 /** Root base for custom domain (and local dev / preview). */
 export default defineConfig({
   base: '/',
+  server: {
+    // Dev: allow Host headers from Tailscale MagicDNS, LAN IPs, tunnels, etc.
+    allowedHosts: true,
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
